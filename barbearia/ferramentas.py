@@ -102,6 +102,34 @@ DECLARACOES = [
         },
     },
     {
+        "name": "registrar_avaliacao",
+        "description": "Guarda a nota (1 a 5) e o comentário que o cliente deu sobre o último atendimento.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nota": {"type": "integer", "description": "1 a 5"},
+                "comentario": {"type": "string"},
+            },
+            "required": ["nota"],
+        },
+    },
+    {
+        "name": "preferencia_mensagens",
+        "description": "Liga ou desliga lembretes, avisos e pedidos de avaliação para este cliente. "
+                       "Use aceita=false se ele pedir para não receber mais mensagens (ex.: 'parar', 'sair').",
+        "parameters": {
+            "type": "object",
+            "properties": {"aceita": {"type": "boolean"}},
+            "required": ["aceita"],
+        },
+    },
+    {
+        "name": "apagar_meus_dados",
+        "description": "Apaga os dados do cliente (LGPD) e cancela os horários futuros dele. "
+                       "Só chame depois de o cliente confirmar que quer mesmo apagar.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "chamar_atendente_humano",
         "description": "Passa a conversa para uma pessoa da barbearia. Use se o cliente pedir, "
                        "estiver irritado, for reclamação, pedido especial ou algo que você não resolve.",
@@ -116,6 +144,8 @@ DECLARACOES = [
 
 def avisar_lista_espera(data_iso, barbeiro, enviar):
     for a in agenda.quem_esperava(data_iso, barbeiro):
+        if not db.aceita_mensagens(a["telefone"]):
+            continue
         dia = agenda.ler_data(a["data"])
         enviar(a["telefone"],
                f"Opa! Abriu vaga {agenda.DIAS_SEMANA[dia.weekday()]} ({dia.strftime('%d/%m')}) "
@@ -159,6 +189,23 @@ def executar(nome, args, telefone, enviar=None):
                 barbeiro = agenda.achar_barbeiro(barbeiro)
             db.salvar_cliente(telefone, args.get("nome"), barbeiro, args.get("observacoes"))
             return {"ok": True}
+        if nome == "registrar_avaliacao":
+            r = agenda.registrar_avaliacao(telefone, args.get("nota"), args.get("comentario"))
+            dono = os.getenv("TELEFONE_DONO")
+            if enviar and dono and r["nota"] <= 3:
+                enviar(dono, f"⚠️ Avaliação {r['nota']}/5 para {r['barbeiro']} (cliente {telefone}): "
+                             f"{args.get('comentario') or 'sem comentário'}")
+            return r
+        if nome == "preferencia_mensagens":
+            db.definir_aceita_mensagens(telefone, bool(args.get("aceita")))
+            return {"ok": True, "aceita_mensagens": bool(args.get("aceita"))}
+        if nome == "apagar_meus_dados":
+            cancelados = 0
+            for ag in agenda.agendamentos_futuros(telefone):
+                agenda.cancelar(telefone, ag["id"])
+                cancelados += 1
+            db.apagar_dados_cliente(telefone)
+            return {"ok": True, "horarios_cancelados": cancelados}
         if nome == "chamar_atendente_humano":
             db.pausar_bot(telefone, time.time() + PAUSA_HUMANO_HORAS * 3600)
             dono = os.getenv("TELEFONE_DONO")

@@ -55,7 +55,7 @@ def ler_data(txt):
     try:
         return datetime.strptime(txt, "%Y-%m-%d").date()
     except (ValueError, TypeError):
-        raise ErroAgenda("Data inválida, use o formato AAAA-MM-DD.")
+        raise ErroAgenda("Data inválida, use o formato AAAA-MM-DD.") from None
 
 
 def _hm(d: date, hhmm: str):
@@ -63,10 +63,25 @@ def _hm(d: date, hhmm: str):
     return datetime(d.year, d.month, d.day, h, m)
 
 
+def _bloqueios(d: date):
+    with db.conexao() as con:
+        rows = con.execute("SELECT barbeiro, motivo FROM bloqueios WHERE data = ?",
+                           (d.isoformat(),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def motivo_fechado(d: date):
+    """Se a barbearia inteira estiver bloqueada nesse dia (feriado etc.), devolve o motivo."""
+    for b in _bloqueios(d):
+        if b["barbeiro"] is None:
+            return b["motivo"] or "fechado"
+    return None
+
+
 def expediente(d: date):
     """Retorna (abre, fecha) do dia ou None se fechado."""
     faixa = config.HORARIO_FUNCIONAMENTO.get(d.weekday())
-    if not faixa:
+    if not faixa or motivo_fechado(d):
         return None
     return _hm(d, faixa[0]), _hm(d, faixa[1])
 
@@ -74,7 +89,9 @@ def expediente(d: date):
 def barbeiros_do_dia(d: date):
     if not expediente(d):
         return []
-    return [b for b, info in config.BARBEIROS.items() if d.weekday() not in info.get("folgas", [])]
+    de_folga = {b["barbeiro"] for b in _bloqueios(d) if b["barbeiro"]}
+    return [b for b, info in config.BARBEIROS.items()
+            if d.weekday() not in info.get("folgas", []) and b not in de_folga]
 
 
 def _ocupados(con, barbeiro, d: date):
@@ -109,8 +126,9 @@ def horarios_livres(data_txt, servico, barbeiro=None):
     if d > hoje + timedelta(days=config.DIAS_ANTECEDENCIA):
         raise ErroAgenda(f"Só abrimos agenda com até {config.DIAS_ANTECEDENCIA} dias de antecedência.")
     if not expediente(d):
-        return {"data": d.isoformat(), "dia_semana": DIAS_SEMANA[d.weekday()],
-                "fechado": True, "mensagem": "A barbearia não abre nesse dia."}
+        motivo = motivo_fechado(d)
+        return {"data": d.isoformat(), "dia_semana": DIAS_SEMANA[d.weekday()], "fechado": True,
+                "mensagem": f"A barbearia não abre nesse dia{f' ({motivo})' if motivo else ''}."}
 
     duracao = timedelta(minutes=config.SERVICOS[servico][1])
     passo = timedelta(minutes=config.INTERVALO_AGENDA)
@@ -143,7 +161,7 @@ def agendar(telefone, nome_cliente, data_txt, hora, servico, barbeiro=None):
     try:
         inicio = _hm(d, hora)
     except (ValueError, AttributeError):
-        raise ErroAgenda("Hora inválida, use HH:MM.")
+        raise ErroAgenda("Hora inválida, use HH:MM.") from None
     if not expediente(d):
         raise ErroAgenda("A barbearia não abre nesse dia.")
     preco, minutos = config.SERVICOS[servico]
@@ -285,7 +303,7 @@ def lembretes_pendentes():
                   and n.hour >= 18 and falta > timedelta(hours=2)):
                 tipo = "vespera"
                 con.execute("UPDATE agendamentos SET lembrete_vespera = 1 WHERE id = ?", (r["id"],))
-            if tipo:
+            if tipo and db.aceita_mensagens(r["telefone"]):
                 saida.append({"tipo": tipo, "telefone": r["telefone"], "nome": r["nome_cliente"],
                               "servico": r["servico"], "barbeiro": r["barbeiro"],
                               "hora": ini.strftime("%H:%M"), "data": ini.strftime("%d/%m"),
@@ -302,3 +320,82 @@ def agenda_do_dia(d: date):
             (d.isoformat() + "%",),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- bloqueios (folga, feriado) ----------
+def bloquear(data_txt, barbeiro=None, motivo=None):
+    d = ler_data(data_txt)
+    barbeiro = achar_barbeiro(barbeiro)
+    with db.conexao() as con:
+        con.execute("INSERT INTO bloqueios (data, barbeiro, motivo) VALUES (?, ?, ?)",
+                    (d.isoformat(), barbeiro, motivo))
+        afetados = con.execute(
+            """SELECT id, telefone, nome_cliente, barbeiro, servico, inicio FROM agendamentos
+               WHERE status = 'confirmado' AND inicio LIKE ? AND (? IS NULL OR barbeiro = ?)""",
+            (d.isoformat() + "%", barbeiro, barbeiro),
+        ).fetchall()
+    return [dict(r) for r in afetados]  # o dono precisa remarcar esses clientes
+
+
+def desbloquear(data_txt, barbeiro=None):
+    d = ler_data(data_txt)
+    barbeiro = achar_barbeiro(barbeiro)
+    with db.conexao() as con:
+        if barbeiro:
+            n = con.execute("DELETE FROM bloqueios WHERE data = ? AND barbeiro = ?",
+                            (d.isoformat(), barbeiro)).rowcount
+        else:
+            n = con.execute("DELETE FROM bloqueios WHERE data = ? AND barbeiro IS NULL",
+                            (d.isoformat(),)).rowcount
+    return n
+
+
+# ---------- avaliação pós-atendimento ----------
+def avaliacoes_pendentes():
+    """Atendimentos que terminaram há 1h+ (até 2 dias) e ainda não pediram avaliação."""
+    n = agora()
+    saida = []
+    with db.conexao() as con:
+        rows = con.execute(
+            """SELECT * FROM agendamentos WHERE status = 'confirmado' AND pedido_avaliacao = 0
+               AND fim <= ? AND fim >= ?""",
+            ((n - timedelta(hours=1)).strftime(FMT), (n - timedelta(days=2)).strftime(FMT)),
+        ).fetchall()
+        for r in rows:
+            con.execute("UPDATE agendamentos SET pedido_avaliacao = 1 WHERE id = ?", (r["id"],))
+            if db.aceita_mensagens(r["telefone"]):
+                saida.append({"id": r["id"], "telefone": r["telefone"], "nome": r["nome_cliente"],
+                              "barbeiro": r["barbeiro"], "servico": r["servico"]})
+    return saida
+
+
+def registrar_avaliacao(telefone, nota, comentario=None):
+    nota = int(nota)
+    if not 1 <= nota <= 5:
+        raise ErroAgenda("A nota precisa ser de 1 a 5.")
+    with db.conexao() as con:
+        row = con.execute(
+            """SELECT id, barbeiro FROM agendamentos WHERE telefone = ? AND status = 'confirmado'
+               AND inicio <= ? ORDER BY inicio DESC LIMIT 1""",
+            (telefone, agora().strftime(FMT)),
+        ).fetchone()
+        if not row:
+            raise ErroAgenda("Não achei atendimento recente desse cliente para avaliar.")
+        con.execute("UPDATE agendamentos SET nota = ?, comentario = ? WHERE id = ?",
+                    (nota, comentario, row["id"]))
+    return {"ok": True, "barbeiro": row["barbeiro"], "nota": nota}
+
+
+def resumo_avaliacoes(dias=30):
+    desde = (agora() - timedelta(days=dias)).strftime(FMT)
+    with db.conexao() as con:
+        por_barbeiro = con.execute(
+            """SELECT barbeiro, ROUND(AVG(nota), 1) AS media, COUNT(nota) AS total
+               FROM agendamentos WHERE nota IS NOT NULL AND inicio >= ?
+               GROUP BY barbeiro ORDER BY media DESC""", (desde,)).fetchall()
+        comentarios = con.execute(
+            """SELECT nome_cliente, barbeiro, nota, comentario FROM agendamentos
+               WHERE comentario IS NOT NULL AND comentario != '' AND inicio >= ?
+               ORDER BY inicio DESC LIMIT 10""", (desde,)).fetchall()
+    return {"por_barbeiro": [dict(r) for r in por_barbeiro],
+            "comentarios": [dict(r) for r in comentarios]}

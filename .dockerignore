@@ -1,0 +1,9 @@
+.env
+*.db
+.git
+__pycache__
+.pytest_cache
+.ruff_cache
+servidor-whatsapp/node_modules
+servidor-whatsapp/.wwebjs_auth
+tests

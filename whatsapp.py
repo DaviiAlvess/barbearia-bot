@@ -4,6 +4,7 @@ Rodar:  uvicorn whatsapp:app --host 0.0.0.0 --port 8000
 Depois cadastre a URL https://SEU_DOMINIO/webhook no painel da Meta
 (com o mesmo WHATSAPP_VERIFY_TOKEN do .env) e assine o campo "messages".
 """
+import logging
 import os
 import threading
 import time
@@ -15,10 +16,13 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 load_dotenv()
 
+from barbearia import configurar_log  # noqa: E402
 from barbearia.atendente import Atendente  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
 from barbearia.ia import Gemini  # noqa: E402
 
+configurar_log()
+log = logging.getLogger("whatsapp")
 TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 VERIFY = os.getenv("WHATSAPP_VERIFY_TOKEN", "barbearia123")
@@ -30,9 +34,9 @@ def _post(corpo):
         r = requests.post(GRAPH, json=corpo, timeout=20,
                           headers={"Authorization": f"Bearer {TOKEN}"})
         if r.status_code >= 300:
-            print(f"[whatsapp] erro {r.status_code}: {r.text[:300]}")
+            log.error("Erro %s: %s", r.status_code, r.text[:300])
     except requests.RequestException as e:
-        print(f"[whatsapp] falha: {e}")
+        log.error("Falha ao chamar a API da Meta: %s", e)
 
 
 def enviar(telefone, texto):
@@ -96,14 +100,13 @@ async def receber(request: Request, tarefas: BackgroundTasks):
     return {"ok": True}
 
 
-def _loop_lembretes():
+def _loop_programadas():
     while True:
         try:
-            for tel, txt in bot.mensagens_de_lembrete():
-                enviar(tel, txt)
-        except Exception as e:  # o loop não pode morrer
-            print(f"[lembretes] erro: {e}")
+            bot.enviar_programadas()
+        except Exception:  # o loop não pode morrer
+            log.exception("Erro ao enviar mensagens programadas")
         time.sleep(300)
 
 
-threading.Thread(target=_loop_lembretes, daemon=True).start()
+threading.Thread(target=_loop_programadas, daemon=True).start()

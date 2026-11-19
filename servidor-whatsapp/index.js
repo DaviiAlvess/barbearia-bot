@@ -16,7 +16,11 @@ const io = new Server(server);
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: `sessao-${ID_SESSAO}` }), // não precisa ler o QR toda vez
-  puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+  puppeteer: {
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  },
 });
 
 let pronto = false;
@@ -76,3 +80,12 @@ io.on('connection', () => console.log('🐍 Bot Python conectado'));
 
 server.listen(PORTA, () => console.log(`Servidor do WhatsApp na porta ${PORTA}`));
 client.initialize();
+
+// Encerra com calma (salva a sessão do WhatsApp) ao parar o servidor
+for (const sinal of ['SIGINT', 'SIGTERM']) {
+  process.on(sinal, async () => {
+    console.log('Encerrando...');
+    try { await client.destroy(); } catch (_) { /* já estava fechado */ }
+    process.exit(0);
+  });
+}

@@ -1,0 +1,35 @@
+# Sobe tudo com: docker compose up -d
+# Para ver o QR code na primeira vez: docker compose logs -f whatsapp
+services:
+  whatsapp:
+    build: ./servidor-whatsapp
+    restart: unless-stopped
+    environment:
+      - ID_SESSAO=${ID_SESSAO:-8113}
+    volumes:
+      - sessao-whatsapp:/app/.wwebjs_auth   # guarda o login (não precisa ler o QR de novo)
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - SERVIDOR_WHATSAPP=http://whatsapp:3000
+    volumes:
+      - dados:/app/dados
+    depends_on:
+      - whatsapp
+
+  painel:
+    build: .
+    restart: unless-stopped
+    command: uvicorn painel:app --host 0.0.0.0 --port 8080
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - dados:/app/dados
+
+volumes:
+  sessao-whatsapp:
+  dados:

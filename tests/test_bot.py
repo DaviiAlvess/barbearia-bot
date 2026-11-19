@@ -7,7 +7,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from barbearia import agenda, db, ferramentas, humanizar, persona  # noqa: E402
+import config  # noqa: E402
+from barbearia import agenda, atendente, db, ferramentas, humanizar, persona  # noqa: E402
 from barbearia.atendente import Atendente  # noqa: E402
 
 # Quinta-feira 19/11/2026 10:00
@@ -23,6 +24,7 @@ def ambiente(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "CAMINHO_BANCO", str(tmp_path / "t.db"))
     monkeypatch.setattr(agenda, "agora", lambda: AGORA)
     monkeypatch.delenv("TELEFONE_DONO", raising=False)
+    atendente._recentes.clear()
     db.criar_tabelas()
 
 
@@ -121,11 +123,12 @@ def test_lembretes(monkeypatch):
     agenda.agendar(TEL, "Carlos Souza", "2026-11-20", "15:00", "Corte", "Rafael")
     monkeypatch.setattr(agenda, "agora", lambda: datetime(2026, 11, 19, 18, 30))
     bot = Atendente(FakeIA([]))
-    msgs = bot.mensagens_de_lembrete()
+    msgs = bot.mensagens_programadas()
     assert len(msgs) == 1 and "Carlos" in msgs[0][1] and "15:00" in msgs[0][1]
-    assert bot.mensagens_de_lembrete() == []  # não repete
+    assert bot.mensagens_programadas() == []  # não repete
     monkeypatch.setattr(agenda, "agora", lambda: datetime(2026, 11, 20, 13, 30))
-    assert len(bot.mensagens_de_lembrete()) == 1  # lembrete de 2h antes
+    msgs = bot.mensagens_programadas()
+    assert len(msgs) == 1 and config.ENDERECO in msgs[0][1]  # lembrete de 2h antes, com endereço
 
 
 # ---------------- conversa ----------------
@@ -195,3 +198,103 @@ def test_baloes():
     assert humanizar.em_baloes("**Oi!**\n\nTudo bem?") == ["Oi!", "Tudo bem?"]
     assert len(humanizar.em_baloes("a\n\nb\n\nc\n\nd")) == 3
     assert 0.5 < humanizar.tempo_digitando("oi") < 7
+
+
+# ---------------- versão 2: boas maneiras e novas funções ----------------
+def test_feriado_e_folga_pelo_dono(monkeypatch):
+    monkeypatch.setenv("TELEFONE_DONO", "dono")
+    agenda.agendar(TEL, "Marcos", SABADO, "09:00", "Corte", "Rafael")
+    bot = Atendente(FakeIA([]))
+    r = bot.responder("dono", "#folga 21/11 Rafael")[0]
+    assert "Marcos" in r  # avisa que já tinha cliente marcado
+    assert "Rafael" not in agenda.horarios_livres(SABADO, "Corte")["livres_por_barbeiro"]
+    bot.responder("dono", f"#fechar {QUARTA} Feriado municipal")
+    fechado = agenda.horarios_livres(QUARTA, "Corte")
+    assert fechado["fechado"] and "Feriado municipal" in fechado["mensagem"]
+    assert "liberado" in bot.responder("dono", f"#abrir {QUARTA}")[0]
+    assert "livres_por_barbeiro" in agenda.horarios_livres(QUARTA, "Corte")
+
+
+def test_avaliacao_pos_atendimento(monkeypatch):
+    monkeypatch.setenv("TELEFONE_DONO", "dono")
+    agenda.agendar(TEL, "Marcos Lima", SABADO, "09:00", "Corte", "Rafael")
+    monkeypatch.setattr(agenda, "agora", lambda: datetime(2026, 11, 21, 10, 45))
+    enviados = []
+    ia = FakeIA([("registrar_avaliacao", {"nota": 2, "comentario": "demorou muito"}),
+                 "Poxa, Marcos, me desculpa pela demora. Vou repassar pro dono, obrigado por avisar."])
+    bot = Atendente(ia, enviar=lambda t, m: enviados.append((t, m)))
+    assert bot.enviar_programadas() == 1
+    assert enviados[0][0] == TEL and "1 a 5" in enviados[0][1] and "Marcos" in enviados[0][1]
+    bot.responder(TEL, "2, demorou muito")
+    # a IA sabia que estava respondendo ao pedido de avaliação
+    assert "1 a 5" in ia.chamadas[0][1][-1]["parts"][0]["text"]
+    assert "NÃO cumprimente" in ia.chamadas[0][0]
+    assert enviados[-1][0] == "dono" and "2/5" in enviados[-1][1]  # nota baixa avisa o dono
+    assert "demorou muito" in bot.responder("dono", "#avaliacoes")[0]
+
+
+def test_cliente_que_pede_para_parar_nao_recebe_mais(monkeypatch):
+    agenda.agendar(TEL, "Ana", "2026-11-20", "15:00", "Corte", "Rafael")
+    ferramentas.executar("preferencia_mensagens", {"aceita": False}, TEL)
+    monkeypatch.setattr(agenda, "agora", lambda: datetime(2026, 11, 19, 19, 0))
+    assert Atendente(FakeIA([])).mensagens_programadas() == []
+
+
+def test_horario_de_silencio(monkeypatch):
+    agenda.agendar(TEL, "Ana", "2026-11-20", "09:00", "Corte", "Rafael")
+    monkeypatch.setattr(agenda, "agora", lambda: datetime(2026, 11, 19, 22, 0))
+    assert Atendente(FakeIA([])).mensagens_programadas() == []
+
+
+def test_apagar_dados(monkeypatch):
+    ia = FakeIA([("apagar_meus_dados", {}), "Pronto, apaguei seus dados. Qualquer coisa é só chamar!"])
+    bot = Atendente(ia)
+    agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte", "Rafael")
+    db.salvar_cliente(TEL, nome="Ana")
+    bot.responder(TEL, "quero apagar meus dados, pode confirmar")
+    assert db.obter_cliente(TEL) is None
+    assert db.carregar_conversa(TEL)[0] == []
+    assert agenda.agendamentos_futuros(TEL) == []
+
+
+def test_anti_spam():
+    bot = Atendente(FakeIA(["ok"] * 20))
+    respostas = [bot.responder(TEL, f"msg {i}") for i in range(14)]
+    assert all(respostas[:12]) and respostas[12] == [] and respostas[13] == []
+
+
+def test_texto_gigante_e_cortado():
+    ia = FakeIA(["ok"])
+    Atendente(ia).responder(TEL, "a" * 10000)
+    assert len(ia.chamadas[0][1][-1]["parts"][0]["text"]) == atendente.MAX_CARACTERES
+
+
+def test_banco_antigo_e_migrado(tmp_path, monkeypatch):
+    import sqlite3
+    caminho = tmp_path / "antigo.db"
+    con = sqlite3.connect(caminho)
+    con.execute("CREATE TABLE clientes (telefone TEXT PRIMARY KEY, nome TEXT, barbeiro_preferido TEXT, "
+                "observacoes TEXT, criado_em TEXT)")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(db, "CAMINHO_BANCO", str(caminho))
+    db.criar_tabelas()
+    assert db.aceita_mensagens("qualquer")
+
+
+def test_painel(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import painel
+    monkeypatch.setenv("PAINEL_SENHA", "s3nha")
+    agenda.agendar(TEL, "<script>alert(1)</script>", SABADO, "09:00", "Corte", "Rafael")
+    c = TestClient(painel.app)
+    assert c.get("/").status_code == 401
+    assert c.get("/", auth=("dono", "errada")).status_code == 401
+    r = c.get(f"/?data={SABADO}", auth=("dono", "s3nha"))
+    assert r.status_code == 200 and "R$ 35.00" in r.text
+    assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
+    r = c.post("/bloquear", data={"data": QUARTA, "barbeiro": "", "motivo": "Feriado"},
+               auth=("dono", "s3nha"), follow_redirects=False)
+    assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]
+    assert "Data inválida" in c.get("/?data=xx", auth=("dono", "s3nha")).text

@@ -1,7 +1,7 @@
 """Converse com o bot no terminal (para testar sem WhatsApp).
 
 Uso:  python terminal.py [telefone]
-Comandos: /telefone <num>  troca de cliente | /dono  vira o dono | /lembretes  | /sair
+Comandos: /telefone <num>  troca de cliente | /dono  vira o dono | /lembretes  (lembretes e avaliações) | /sair
 """
 import os
 import sys
@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from barbearia import configurar_log  # noqa: E402
 from barbearia.atendente import Atendente  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
 from barbearia.ia import Gemini  # noqa: E402
@@ -32,6 +33,7 @@ def mostrar(baloes):
 
 
 def main():
+    configurar_log(os.getenv("LOG_LEVEL", "WARNING"))
     telefone = sys.argv[1] if len(sys.argv) > 1 else "5575999990000"
     bot = Atendente(Gemini(), enviar=enviar)
     print(f"Conversando como {telefone}. Digite /sair para encerrar.\n")
@@ -52,8 +54,8 @@ def main():
             print("(agora você é o dono; digite #ajuda)")
             continue
         if texto == "/lembretes":
-            for tel, msg in bot.mensagens_de_lembrete() or [("-", "nenhum lembrete agora")]:
-                enviar(tel, msg)
+            if not bot.enviar_programadas():
+                print("(nenhum lembrete ou avaliação para mandar agora)")
             continue
         baloes = bot.responder(telefone, texto)
         if not baloes:

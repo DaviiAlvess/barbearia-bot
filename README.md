@@ -1,102 +1,152 @@
 # 💈 Barbearia Bot
 
-Atendente de barbearia no WhatsApp com IA (Google Gemini), baseado no **Bella Bot**
-(github.com/davialvs908/ChatBot-bellabot), com atendimento bem mais humano.
+Atendente de barbearia no WhatsApp com IA (Google Gemini), feito a partir do **Bella Bot**
+(branch `belinhafuncional` de github.com/davialvs908/ChatBot-bellabot). O atendimento é mais
+humano, educado e completo.
+
+![testes](https://github.com/DaviiAlvess/barbearia-bot/actions/workflows/testes.yml/badge.svg)
+
+## Como é a conversa
+
+```
+Cliente: fala, tem horário sábado de tarde com o Rafael?
+Léo:     Boa noite! Tenho sim 😊 Sábado com o Rafael tem 14:00, 14:30 e 15:30.
+Léo:     Qual fica melhor pra você?
+Cliente: 14h, corte e barba. Meu nome é Marcos
+Léo:     Fechado, Marcos: corte + barba no sábado (21/11) às 14:00 com o Rafael, R$ 55,00. Posso confirmar?
+Cliente: pode
+Léo:     Prontinho, tá marcado! Obrigado pela preferência 🙏
+Léo:     Fica na Rua Exemplo, 123 - Centro. Até sábado!
+```
 
 ## O que mudou em relação ao Bella Bot
 
 | Bella Bot | Barbearia Bot |
 |---|---|
-| Menu numerado (1, 2, 3...) | Conversa livre: o cliente escreve como quiser ("tem horário sábado de tarde com o Rafael?") |
-| Horários fixos, sem data: um horário marcado ficava ocupado para sempre | Agenda real por **data, barbeiro e duração do serviço**, com almoço, folgas e dias fechados |
-| A IA não sabia dos horários (podia inventar) | A IA **consulta a agenda por ferramentas** e nunca inventa horário ou preço |
-| Filtro de palavras-chave barrava perguntas normais | A IA entende o contexto e só redireciona de leve quando o assunto foge muito |
-| Sem memória | Lembra da conversa e **reconhece o cliente que volta** (nome, barbeiro preferido, como gosta do corte) |
-| Textões | Mensagens curtas, divididas em balões, com tempo de "digitando..." e "visto" |
-| WhatsApp por QR code com servidor Node à parte (fora do repositório) | Mesmo esquema da Belinha (QR code + Socket.IO), **com o servidor Node incluído**, mais a opção da API oficial da Meta |
-| Modelo `gemini-2.0-flash` fixo | Modelo configurável no `.env` |
+| Menu numerado e fluxo engessado | Conversa livre: o cliente escreve do jeito dele |
+| A IA não via a agenda (podia inventar) | A IA **consulta a agenda por ferramentas** e nunca inventa horário ou preço |
+| Horários sem data e sem duração | Agenda por **data, barbeiro e duração**, com almoço, folgas, feriados e dias fechados |
+| Textões | Mensagens curtas em balões, com "digitando..." e visto azul |
+| Esquecia tudo | Lembra da conversa e **reconhece quem volta** (nome, barbeiro preferido, estilo) |
+| Chave da API escrita no código | Chave só no `.env`, que nunca vai para o GitHub |
+| Servidor do WhatsApp fora do repositório | Servidor Node incluído (mesmo protocolo da Belinha) |
 
 ## Funções
 
-- **Agendar** com data em linguagem natural ("amanhã", "sábado", "semana que vem")
-- **Remarcar** e **cancelar** pelo chat
-- **Lista de espera**: se o dia estiver lotado e alguém cancelar, quem esperava recebe mensagem na hora
-- **Cartão fidelidade**: a cada 10 atendimentos ganha um corte (configurável)
-- **Lembretes automáticos**: na véspera (a partir das 18h) e 2h antes
-- **Sugestão de estilo**: indica serviço e o barbeiro que manda bem naquilo
-- **Passa para um humano** quando o cliente pede, reclama ou está irritado (o bot fica quieto por 2h e avisa o dono)
-- Responde áudio/foto pedindo com jeito para escrever
-- **Comandos do dono** (pelo WhatsApp do `TELEFONE_DONO`):
-  - `#agenda` / `#agenda amanha` / `#agenda 2026-11-21`: agenda do dia com o total em R$
-  - `#cancelar 12`: cancela o agendamento #12 (e avisa a lista de espera)
-  - `#pausar 5575...`: você assume a conversa / `#bot 5575...`: religa o bot
+**Para o cliente**
+- Agendar com data em linguagem natural ("amanhã", "sábado", "semana que vem")
+- Remarcar e cancelar pelo chat
+- Lista de espera: se o dia está lotado e alguém cancela, ele recebe uma mensagem na hora
+- Cartão fidelidade: a cada 10 atendimentos ganha um corte (configurável)
+- Lembretes na véspera e 2h antes, com o endereço
+- Pedido de avaliação (nota de 1 a 5) depois do atendimento
+- Sugestão de estilo e de barbeiro
+- Pode pedir para **não receber mais mensagens** ou **apagar os dados** (LGPD)
+- Áudio e foto: o bot pede com educação para escrever
+
+**Para o dono**
+- Alerta no WhatsApp quando um cliente pede atendimento humano ou dá nota baixa
+- Comandos pelo WhatsApp do `TELEFONE_DONO`:
+
+| Comando | O que faz |
+|---|---|
+| `#agenda` / `#agenda amanha` / `#agenda 25/12` | Agenda do dia com o total em R$ |
+| `#cancelar 12` | Cancela o agendamento #12 e avisa a lista de espera |
+| `#fechar 25/12 Natal` | Fecha a barbearia no dia (e mostra quem já estava marcado) |
+| `#folga 28/11 Rafael` | Folga de um barbeiro |
+| `#abrir 25/12` | Desfaz o bloqueio |
+| `#avaliacoes` | Média de cada barbeiro e últimos comentários |
+| `#aviso 5575... texto` | Manda uma mensagem para um cliente |
+| `#pausar 5575...` / `#bot 5575...` | Você assume a conversa / religa o bot |
+
+- **Painel web** (`painel.py`): agenda por dia, cancelar, folgas e feriados, avaliações. Protegido por senha.
+
+## Boas maneiras do atendente
+
+O atendente "Léo" segue regras de etiqueta (veja `barbearia/persona.py`):
+- É educado ("por favor", "obrigado") e trata o cliente pelo nome, sem apelidos como "mano" ou "querido".
+- Não insiste quando o cliente diz que vai pensar e não comenta aparência, peso, idade ou vida pessoal.
+- Pede desculpas quando algo dá errado e, se o cliente estiver irritado, chama um humano.
+- Só pede o nome, nunca CPF, endereço ou e-mail.
+- Não diz que é humano. Se perguntarem, diz com honestidade que é o atendimento automático.
+- Não manda lembretes nem avaliações entre 21h e 8h e respeita quem pediu para parar.
 
 ## Como rodar
 
+### 1. Configurar
 ```bash
 pip install -r requirements.txt
-cp .env.example .env        # coloque sua GEMINI_API_KEY
+cp .env.example .env      # coloque GEMINI_API_KEY, TELEFONE_DONO e PAINEL_SENHA
 ```
+Edite **`config.py`** com nome, endereço, barbeiros, serviços, preços e horários.
 
-Edite **`config.py`** com o nome, endereço, barbeiros, serviços, preços e horários.
-
-**Testar no terminal:**
+### 2. Testar no terminal
 ```bash
 python terminal.py
 ```
-Comandos no terminal: `/telefone 5575...` (simula outro cliente), `/dono`, `/lembretes`, `/sair`.
+Comandos: `/telefone 5575...` (simula outro cliente), `/dono`, `/lembretes`, `/sair`.
 
-**Colocar no WhatsApp pelo QR code (mesmo esquema da Belinha):**
-
-Precisa de Node.js 18+ instalado.
+### 3. WhatsApp pelo QR code (mesmo esquema da Belinha)
+Precisa de Node.js 18+.
 ```bash
-# terminal 1: servidor do WhatsApp
-cd servidor-whatsapp
-npm install
-npm start          # aparece o QR code: WhatsApp > Aparelhos conectados > Conectar
+cd servidor-whatsapp && npm install && npm start   # escaneie o QR: WhatsApp > Aparelhos conectados
+python bot_whatsapp.py                              # em outro terminal
 ```
-```bash
-# terminal 2: o bot
-python bot_whatsapp.py
-```
-O login fica salvo; nas próximas vezes não precisa ler o QR de novo.
 O protocolo é o mesmo da branch `belinhafuncional` (evento `novaMensagem` e `POST /enviarMensagem`
-em `localhost:3000`, sessão `8113`), então também funciona com o servidor Node que vocês já usavam.
-Atenção: conexão por QR code não é oficial; use com moderação para o número não ser bloqueado.
+em `localhost:3000`, sessão `8113`). Conexão por QR code não é oficial: use com moderação.
 
-**Opção: API oficial da Meta** (mais estável, exige app na Meta e servidor com HTTPS):
-1. Crie um app em developers.facebook.com, adicione o produto WhatsApp e pegue o token e o Phone Number ID.
-2. Preencha `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_VERIFY_TOKEN` no `.env`.
-3. Rode `uvicorn whatsapp:app --host 0.0.0.0 --port 8000` em um servidor com HTTPS
-   (para testar no PC dá para usar `ngrok http 8000`).
-4. No painel da Meta, cadastre o webhook `https://SEU_ENDERECO/webhook` com o mesmo verify token
-   e assine o campo **messages**.
-
-**Testes** (não usam internet, a IA é simulada):
+### 4. Painel do dono
 ```bash
-pip install pytest httpx && python -m pytest -q
+uvicorn painel:app --port 8080
 ```
+Abra http://localhost:8080 (usuário `dono`, senha `PAINEL_SENHA`).
+
+### Tudo de uma vez com Docker
+```bash
+docker compose up -d
+docker compose logs -f whatsapp   # na primeira vez, para escanear o QR code
+```
+
+### Opção: API oficial da Meta
+Mais estável, mas exige um app na Meta e um servidor com HTTPS. Preencha `WHATSAPP_TOKEN`,
+`WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_VERIFY_TOKEN`, rode `uvicorn whatsapp:app --port 8000`
+e cadastre `https://SEU_ENDERECO/webhook` no painel da Meta (campo **messages**).
+
+## Desenvolvimento
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q        # 26 testes, sem internet (a IA é simulada)
+ruff check .     # padrão de código
+```
+O GitHub Actions roda os testes e o lint a cada push.
 
 ## Estrutura
 
 ```
-config.py               dados da barbearia (edite aqui)
-terminal.py             chat no terminal
-bot_whatsapp.py         bot no WhatsApp pelo QR code (fala com o servidor-whatsapp)
-servidor-whatsapp/      servidor Node (whatsapp-web.js) que lê o QR code
-whatsapp.py             opção com a API oficial da Meta (webhook)
+config.py                dados da barbearia (edite aqui)
+terminal.py              chat no terminal
+bot_whatsapp.py          bot no WhatsApp pelo QR code
+servidor-whatsapp/       servidor Node (whatsapp-web.js) que lê o QR code
+whatsapp.py              opção com a API oficial da Meta
+painel.py                painel web do dono
 barbearia/
-  atendente.py          orquestra conversa, IA e ferramentas; comandos do dono
-  persona.py            personalidade e regras do "Léo" (o atendente)
-  ferramentas.py        funções que a IA pode chamar (agenda, fidelidade, humano...)
-  agenda.py             regras de horários, conflitos, lista de espera, lembretes
-  ia.py                 cliente do Gemini com function calling
-  humanizar.py          balões, tempo de digitação, respostas de emergência
-  db.py                 SQLite (clientes, agendamentos, conversas, lista de espera)
-tests/test_bot.py       17 testes
+  atendente.py           conversa, IA, ferramentas, comandos do dono, lembretes
+  persona.py             personalidade e boas maneiras do atendente
+  ferramentas.py         o que a IA pode fazer (agendar, remarcar, avaliar...)
+  agenda.py              horários, conflitos, bloqueios, lista de espera, avaliações
+  ia.py                  cliente do Gemini com function calling
+  humanizar.py           balões, tempo de digitação, respostas de emergência
+  db.py                  SQLite com migração automática
+tests/test_bot.py        testes
 ```
 
-## Para deixar com a cara da sua barbearia
+## Privacidade (LGPD)
 
-- Troque o nome e o jeito do atendente em `config.py` (`NOME_ATENDENTE`) e o texto em `barbearia/persona.py`.
-- `INFO_EXTRA` em `config.py` é onde entram regras da casa (tolerância de atraso, estacionamento etc.).
+- Guardamos só o necessário: telefone, nome, preferências de corte e histórico de agendamentos.
+- O cliente pode pedir pelo chat para não receber mensagens ou para apagar os dados.
+- Nunca suba o `.env` ou o arquivo `.db` para o GitHub (o `.gitignore` já bloqueia).
+
+## Licença
+
+MIT. Veja `LICENSE`.

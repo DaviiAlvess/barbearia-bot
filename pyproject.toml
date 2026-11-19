@@ -1,0 +1,20 @@
+[project]
+name = "barbearia-bot"
+version = "2.0.0"
+description = "Atendimento humanizado com IA para barbearias no WhatsApp"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[tool.ruff]
+line-length = 125
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["B008"]  # Depends()/Form() como valor padrão é o padrão do FastAPI
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"barbearia/persona.py" = ["E501"]  # o prompt é texto corrido

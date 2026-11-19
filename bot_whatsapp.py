@@ -8,6 +8,7 @@ Rodar:
   1) cd servidor-whatsapp && npm install && npm start   (escaneie o QR code)
   2) python bot_whatsapp.py
 """
+import logging
 import os
 import threading
 import time
@@ -18,10 +19,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from barbearia import configurar_log  # noqa: E402
 from barbearia.atendente import Atendente  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
 from barbearia.ia import Gemini  # noqa: E402
 
+configurar_log()
+log = logging.getLogger("whatsapp")
 SERVIDOR = os.getenv("SERVIDOR_WHATSAPP", "http://localhost:3000")
 ID_SESSAO = os.getenv("ID_SESSAO", "8113")
 
@@ -30,10 +34,10 @@ def _post(rota, dados):
     try:
         r = requests.post(f"{SERVIDOR}{rota}", json={"idSessao": ID_SESSAO, **dados}, timeout=20)
         if r.status_code >= 300 and rota != "/digitando":
-            print(f"[whatsapp] erro {r.status_code} em {rota}: {r.text[:200]}")
+            log.error("Erro %s em %s: %s", r.status_code, rota, r.text[:200])
     except requests.RequestException as e:
         if rota != "/digitando":
-            print(f"[whatsapp] falha em {rota}: {e}")
+            log.error("Falha em %s: %s", rota, e)
 
 
 def enviar(numero, texto):
@@ -45,7 +49,7 @@ def digitando(numero):
 
 
 bot = Atendente(Gemini(), enviar=enviar)
-_vistos = set()
+_vistos: set[str] = set()
 
 
 def processar(numero, texto):
@@ -61,11 +65,11 @@ def montar_socket():
 
     @sio.event
     def connect():
-        print(f"✅ Conectado ao servidor do WhatsApp ({SERVIDOR}), sessão {ID_SESSAO}")
+        log.info("Conectado ao servidor do WhatsApp (%s), sessão %s", SERVIDOR, ID_SESSAO)
 
     @sio.event
     def disconnect():
-        print("⚠️ Desconectado do servidor do WhatsApp. Tentando reconectar...")
+        log.warning("Desconectado do servidor do WhatsApp. Tentando reconectar...")
 
     @sio.on("novaMensagem")
     def nova_mensagem(data):
@@ -88,36 +92,36 @@ def montar_socket():
             texto = f"[o cliente mandou um(a) {tipo}; responda de forma natural]"
         if not texto:
             return
-        print(f"📩 {numero}: {texto}")
+        log.info("Mensagem de %s: %s", numero, texto[:80])
         # cada mensagem em uma thread para não travar as outras conversas
         threading.Thread(target=processar, args=(numero, texto), daemon=True).start()
 
     return sio
 
 
-def loop_lembretes():
+def loop_programadas():
+    """Lembretes e pedidos de avaliação, a cada 5 minutos."""
     while True:
         try:
-            for numero, texto in bot.mensagens_de_lembrete():
-                enviar(numero, texto)
-        except Exception as e:  # o loop não pode morrer
-            print(f"[lembretes] erro: {e}")
+            bot.enviar_programadas()
+        except Exception:  # o loop não pode morrer
+            log.exception("Erro ao enviar mensagens programadas")
         time.sleep(300)
 
 
 def main():
-    threading.Thread(target=loop_lembretes, daemon=True).start()
+    threading.Thread(target=loop_programadas, daemon=True).start()
     sio = montar_socket()
     while True:
         try:
-            print(f"Conectando em {SERVIDOR}...")
+            log.info("Conectando em %s...", SERVIDOR)
             sio.connect(SERVIDOR)
             sio.wait()
         except socketio.exceptions.ConnectionError as e:
-            print(f"❌ Não conectou ({e}). O servidor-whatsapp está rodando? Tentando de novo em 10s...")
+            log.error("Não conectou (%s). O servidor-whatsapp está rodando? Nova tentativa em 10s", e)
             time.sleep(10)
         except KeyboardInterrupt:
-            print("\nBot encerrado.")
+            log.info("Bot encerrado.")
             break
 
 
