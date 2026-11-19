@@ -3,3 +3,8 @@
 __pycache__/
 .pytest_cache/
 .venv/
+
+# servidor-whatsapp
+node_modules/
+.wwebjs_auth/
+.wwebjs_cache/

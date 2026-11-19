@@ -13,7 +13,7 @@ Atendente de barbearia no WhatsApp com IA (Google Gemini), baseado no **Bella Bo
 | Filtro de palavras-chave barrava perguntas normais | A IA entende o contexto e só redireciona de leve quando o assunto foge muito |
 | Sem memória | Lembra da conversa e **reconhece o cliente que volta** (nome, barbeiro preferido, como gosta do corte) |
 | Textões | Mensagens curtas, divididas em balões, com tempo de "digitando..." e "visto" |
-| Só terminal | Terminal **e WhatsApp** (API oficial da Meta) |
+| WhatsApp por QR code com servidor Node à parte (fora do repositório) | Mesmo esquema da Belinha (QR code + Socket.IO), **com o servidor Node incluído**, mais a opção da API oficial da Meta |
 | Modelo `gemini-2.0-flash` fixo | Modelo configurável no `.env` |
 
 ## Funções
@@ -46,7 +46,25 @@ python terminal.py
 ```
 Comandos no terminal: `/telefone 5575...` (simula outro cliente), `/dono`, `/lembretes`, `/sair`.
 
-**Colocar no WhatsApp (API oficial da Meta):**
+**Colocar no WhatsApp pelo QR code (mesmo esquema da Belinha):**
+
+Precisa de Node.js 18+ instalado.
+```bash
+# terminal 1: servidor do WhatsApp
+cd servidor-whatsapp
+npm install
+npm start          # aparece o QR code: WhatsApp > Aparelhos conectados > Conectar
+```
+```bash
+# terminal 2: o bot
+python bot_whatsapp.py
+```
+O login fica salvo; nas próximas vezes não precisa ler o QR de novo.
+O protocolo é o mesmo da branch `belinhafuncional` (evento `novaMensagem` e `POST /enviarMensagem`
+em `localhost:3000`, sessão `8113`), então também funciona com o servidor Node que vocês já usavam.
+Atenção: conexão por QR code não é oficial; use com moderação para o número não ser bloqueado.
+
+**Opção: API oficial da Meta** (mais estável, exige app na Meta e servidor com HTTPS):
 1. Crie um app em developers.facebook.com, adicione o produto WhatsApp e pegue o token e o Phone Number ID.
 2. Preencha `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_VERIFY_TOKEN` no `.env`.
 3. Rode `uvicorn whatsapp:app --host 0.0.0.0 --port 8000` em um servidor com HTTPS
@@ -64,7 +82,9 @@ pip install pytest httpx && python -m pytest -q
 ```
 config.py               dados da barbearia (edite aqui)
 terminal.py             chat no terminal
-whatsapp.py             servidor do webhook do WhatsApp + lembretes
+bot_whatsapp.py         bot no WhatsApp pelo QR code (fala com o servidor-whatsapp)
+servidor-whatsapp/      servidor Node (whatsapp-web.js) que lê o QR code
+whatsapp.py             opção com a API oficial da Meta (webhook)
 barbearia/
   atendente.py          orquestra conversa, IA e ferramentas; comandos do dono
   persona.py            personalidade e regras do "Léo" (o atendente)
