@@ -9,12 +9,12 @@ import requests
 
 log = logging.getLogger(__name__)
 
-MODELO = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+MODELO = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 # Se o modelo do .env sumir na API do Google, tenta nesta ordem.
 FALLBACKS = [
-    "gemini-3.8-flash",
     "gemini-3.5-flash",
     "gemini-3.6-flash",
+    "gemini-3.8-flash",
     "gemini-2.5-flash",
     "gemini-flash-latest",
 ]
