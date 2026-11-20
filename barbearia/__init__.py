@@ -1,4 +1,4 @@
-"""Barbearia Bot: atendimento humanizado com IA para barbearias."""
+"""Agendbarber: atendimento humanizado com IA para barbearias."""
 import logging
 import os
 

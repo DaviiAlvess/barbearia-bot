@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS bloqueios (
     barbeiro TEXT,               -- NULL = barbearia inteira fechada
     motivo TEXT
 );
+
+CREATE TABLE IF NOT EXISTS configuracoes (
+    chave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+);
 """
 
 # colunas adicionadas depois da primeira versão (para quem já tem o banco criado)
@@ -200,3 +205,28 @@ def apagar_dados_cliente(telefone: str) -> None:
         con.execute("DELETE FROM lista_espera WHERE telefone = ?", (telefone,))
         con.execute("""UPDATE agendamentos SET nome_cliente = 'anônimo', telefone = 'removido',
                        comentario = NULL WHERE telefone = ?""", (telefone,))
+
+
+# ---------- configuracoes do salão ----------
+def obter_config(chave: str, padrao: str | None = None) -> str | None:
+    with conexao() as con:
+        row = con.execute("SELECT valor FROM configuracoes WHERE chave = ?", (chave,)).fetchone()
+        return row["valor"] if row else padrao
+
+
+def salvar_config(chave: str, valor: str) -> None:
+    with conexao() as con:
+        con.execute(
+            """INSERT INTO configuracoes (chave, valor) VALUES (?, ?)
+               ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor""",
+            (chave, valor),
+        )
+
+
+def nome_salao() -> str:
+    """Nome do salão: painel (banco) tem prioridade sobre config.py."""
+    import config
+    salvo = obter_config("nome_salao")
+    if salvo and salvo.strip():
+        return salvo.strip()[:80]
+    return (config.NOME_BARBEARIA or "Meu Salão").strip()

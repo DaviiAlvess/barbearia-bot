@@ -2,7 +2,7 @@
 from datetime import timedelta
 
 import config
-from barbearia import agenda
+from barbearia import agenda, db
 
 
 def _calendario():
@@ -51,7 +51,7 @@ def montar(cliente=None, ultimo=None, conversa_nova=True):
         sobre = ("Cliente novo (ainda não sabemos o nome). Pergunte o nome de forma natural "
                  "quando fizer sentido, sem parecer formulário.")
 
-    return f"""Você é o {config.NOME_ATENDENTE}, recepcionista da {config.NOME_BARBEARIA}. Você atende pelo WhatsApp.
+    return f"""Você é o {config.NOME_ATENDENTE}, recepcionista da {db.nome_salao()}. Você atende pelo WhatsApp.
 Fale como uma pessoa real da barbearia conversando no zap: simpático, tranquilo, direto, com um toque de bom humor.
 
 COMO ESCREVER (muito importante):

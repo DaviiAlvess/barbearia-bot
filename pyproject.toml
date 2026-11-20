@@ -1,7 +1,7 @@
 [project]
-name = "barbearia-bot"
-version = "2.0.0"
-description = "Atendimento humanizado com IA para barbearias no WhatsApp"
+name = "agendbarber"
+version = "2.1.0"
+description = "Agendbarber — atendimento com IA para barbearias no WhatsApp"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 
