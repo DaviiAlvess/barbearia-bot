@@ -259,29 +259,68 @@ class Atendente:
 
     @staticmethod
     def _data_arg(arg: str):
-        hoje = agenda.agora().date()
+        """Aceita hoje, amanhã, sábado, 25/12, 2026-11-25…"""
         if not arg or arg.lower() == "hoje":
-            return hoje
-        if arg.lower().startswith("amanh"):
-            return hoje + timedelta(days=1)
-        if "/" in arg:  # aceita 25/12
-            dia, mes = arg.split("/")[:2]
-            d = hoje.replace(month=int(mes), day=int(dia))
-            return d if d >= hoje else d.replace(year=d.year + 1)
-        return agenda.ler_data(arg)
+            return agenda.agora().date()
+        info = agenda.interpretar_data(arg)
+        return agenda.ler_data(info["data"])
+
+    def _formatar_agenda_dia(self, d) -> str:
+        itens = agenda.agenda_do_dia(d)
+        rotulo = f"{agenda.DIAS_SEMANA[d.weekday()]} {d.strftime('%d/%m')}"
+        if not itens:
+            return f"📅 {rotulo}: nenhum horário marcado."
+        total = sum(i["preco"] or 0 for i in itens)
+        linhas = [
+            f"{i['inicio'][11:]} {i['barbeiro']}: {i['servico']} - {i['nome_cliente']} (#{i['id']})"
+            for i in itens
+        ]
+        return (f"📅 Agenda {rotulo} ({len(itens)} atendimentos, R$ {total:.2f}):\n"
+                + "\n".join(linhas))
+
+    def _formatar_agenda_semana(self, dias: int = 7) -> str:
+        resumo = agenda.resumo_dias(dias=dias)
+        linhas = []
+        for r in resumo:
+            if r["quantidade"]:
+                linhas.append(
+                    f"• {r['dia_semana'][:3]} {r['dd_mm']}: "
+                    f"{r['quantidade']} · R$ {r['total']:.2f}"
+                )
+            else:
+                linhas.append(f"• {r['dia_semana'][:3]} {r['dd_mm']}: —")
+        return (
+            f"📅 Próximos {dias} dias (use #agenda sábado ou #agenda 25/12 "
+            f"para o detalhe):\n" + "\n".join(linhas)
+        )
 
     def _executar_comando(self, cmd: str, args: list[str], texto: str) -> str:
         arg = args[0] if args else ""
         if cmd == "#agenda":
+            chave = (arg or "").strip().lower()
+            if chave in ("semana", "proximos", "próximos", "7", "7dias"):
+                return self._formatar_agenda_semana(7)
+            if chave in ("mes", "mês", "30", "30dias"):
+                return self._formatar_agenda_semana(30)
+            # Sem argumento: dia de hoje + resumo dos próximos com marcações
+            if not chave:
+                hoje = agenda.agora().date()
+                corpo = self._formatar_agenda_dia(hoje)
+                outros = [
+                    r for r in agenda.resumo_dias(inicio=hoje + timedelta(days=1), dias=6)
+                    if r["quantidade"]
+                ]
+                if outros:
+                    dicas = ", ".join(f"{r['dd_mm']} ({r['quantidade']})" for r in outros)
+                    corpo += (
+                        f"\n\n📌 Outros dias com horário: {dicas}.\n"
+                        f"Detalhe: #agenda amanha | #agenda sábado | #agenda semana"
+                    )
+                else:
+                    corpo += "\n\n(Outros dias: #agenda amanha | #agenda sábado | #agenda semana)"
+                return corpo
             d = self._data_arg(arg)
-            itens = agenda.agenda_do_dia(d)
-            if not itens:
-                return f"📅 {d.strftime('%d/%m')}: nenhum horário marcado."
-            total = sum(i["preco"] or 0 for i in itens)
-            linhas = [f"{i['inicio'][11:]} {i['barbeiro']}: {i['servico']} - {i['nome_cliente']} (#{i['id']})"
-                      for i in itens]
-            return (f"📅 Agenda {d.strftime('%d/%m')} ({len(itens)} atendimentos, R$ {total:.2f}):\n"
-                    + "\n".join(linhas))
+            return self._formatar_agenda_dia(d)
         if cmd == "#pausar" and arg:
             db.pausar_bot(arg, time.time() + 12 * 3600)
             return f"⏸️ Bot pausado para {arg} por 12h. Use #bot {arg} para religar."
@@ -345,7 +384,9 @@ class Atendente:
             self.enviar(numero, mensagem)
             return f"📤 Enviado para {numero}."
         return ("Comandos do dono:\n"
-                "#agenda [hoje|amanha|25/12]\n"
+                "#agenda  (hoje + dica dos outros dias)\n"
+                "#agenda amanha|sábado|25/12|2026-11-25\n"
+                "#agenda semana  (resumo 7 dias)\n"
                 "#cancelar <id>\n"
                 "#fechar <data> [motivo]  (feriado, reforma...)\n"
                 "#folga <data> <barbeiro>\n"

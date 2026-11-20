@@ -217,6 +217,15 @@ def test_comandos_do_dono(monkeypatch):
     bot = Atendente(FakeIA([]))
     r = bot.responder("dono", f"#agenda {SABADO}")[0]
     assert "Marcos" in r and "R$ 35.00" in r
+    # nome do dia (sábado = 21/11/2026 no relógio fixo)
+    r2 = bot.responder("dono", "#agenda sábado")[0]
+    assert "Marcos" in r2 and "21/11" in r2
+    # resumo da semana
+    r3 = bot.responder("dono", "#agenda semana")[0]
+    assert "21/11" in r3 and "1 ·" in r3
+    # sem argumento: hoje + dica dos outros dias
+    r4 = bot.responder("dono", "#agenda")[0]
+    assert "21/11" in r4 and ("Outros dias" in r4 or "semana" in r4)
     assert "Comandos" in bot.responder("dono", "#ajuda")[0]
 
 
@@ -485,6 +494,8 @@ def test_painel(monkeypatch):
     assert "Agendbarber" in c.get("/login").text or "Agendbarber" in c.get("/").text
     r = c.get(f"/?data={SABADO}")
     assert r.status_code == 200 and "R$ 35.00" in r.text
+    assert 'aria-label="Outros dias"' in r.text  # faixa para trocar de dia
+    assert f'href="/?data={SABADO}"' in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
     # nome + endereço do salão pelo painel
     assert c.get("/salao").status_code == 200 and "Nome do salão" in c.get("/salao").text

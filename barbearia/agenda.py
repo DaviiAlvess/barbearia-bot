@@ -408,6 +408,30 @@ def agenda_do_dia(d: date):
     return [dict(r) for r in rows]
 
 
+def resumo_dias(inicio: date | None = None, dias: int = 7) -> list[dict]:
+    """Contagem e total (R$) por dia, a partir de `inicio` (padrão: hoje)."""
+    base = inicio or agora().date()
+    dias = max(1, min(int(dias), 31))
+    saida = []
+    with db.conexao() as con:
+        for i in range(dias):
+            d = base + timedelta(days=i)
+            row = con.execute(
+                """SELECT COUNT(*) AS n, COALESCE(SUM(preco), 0) AS total FROM agendamentos
+                   WHERE status = 'confirmado' AND inicio LIKE ?""",
+                (d.isoformat() + "%",),
+            ).fetchone()
+            saida.append({
+                "data": d,
+                "iso": d.isoformat(),
+                "dd_mm": d.strftime("%d/%m"),
+                "dia_semana": DIAS_SEMANA[d.weekday()],
+                "quantidade": int(row["n"] or 0),
+                "total": float(row["total"] or 0),
+            })
+    return saida
+
+
 # ---------- bloqueios (folga, feriado) ----------
 def bloquear(data_txt, barbeiro=None, motivo=None):
     d = ler_data(data_txt)

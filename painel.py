@@ -89,6 +89,22 @@ main{max-width:920px;margin:0 auto;padding:18px 16px 40px}
 .toolbar b{font-size:1rem}
 .toolbar form{display:flex;gap:8px;align-items:center;margin:0}
 .toolbar input[type=date]{width:auto;margin:0;padding:8px 10px}
+.semana{
+  display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  padding:4px 0 12px;margin:0 0 4px;scrollbar-width:none;
+}
+.semana::-webkit-scrollbar{display:none}
+.semana a{
+  flex:1 0 3.4rem;min-width:3.4rem;text-align:center;text-decoration:none;color:var(--ink);
+  border:1px solid var(--line);border-radius:12px;padding:8px 4px;background:#fff;
+  font-size:.78rem;font-weight:600;line-height:1.25;
+}
+.semana a:hover{background:#ebe4d8}
+.semana a.hoje{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold-soft)}
+.semana a.ativo{background:var(--ink);color:#f7f1e6;border-color:var(--ink)}
+.semana a .n{display:block;font-size:1.05rem;font-weight:700;margin-top:2px}
+.semana a .vazio-dia{color:var(--muted);font-weight:500}
+.semana a.ativo .vazio-dia{color:#cfc6b8}
 table{width:100%;border-collapse:collapse}
 td,th{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
@@ -251,7 +267,8 @@ def sair():
 
 @app.get("/", dependencies=[Depends(autenticar)])
 def ver_agenda(data: str | None = None):
-    d = agenda.ler_data(data) if data else agenda.agora().date()
+    hoje = agenda.agora().date()
+    d = agenda.ler_data(data) if data else hoje
     itens = agenda.agenda_do_dia(d)
     total = sum(i["preco"] or 0 for i in itens)
     linhas = "".join(
@@ -262,16 +279,40 @@ def ver_agenda(data: str | None = None):
         f"<input type=hidden name=data value={d.isoformat()}><button class=perigo>Cancelar</button>"
         f"</form></td></tr>" for i in itens)
     anterior, proximo = d - timedelta(days=1), d + timedelta(days=1)
+    # Faixa da semana: 3 dias antes … 10 dias depois do dia aberto (fácil pular)
+    inicio_faixa = d - timedelta(days=3)
+    faixa = agenda.resumo_dias(inicio=inicio_faixa, dias=14)
+    chips = []
+    for r in faixa:
+        classes = []
+        if r["data"] == d:
+            classes.append("ativo")
+        if r["data"] == hoje:
+            classes.append("hoje")
+        cls = f' class="{" ".join(classes)}"' if classes else ""
+        qtd = (
+            f'<span class=n>{r["quantidade"]}</span>'
+            if r["quantidade"]
+            else '<span class="n vazio-dia">·</span>'
+        )
+        chips.append(
+            f'<a href="/?data={r["iso"]}"{cls}>'
+            f'{r["dia_semana"][:3]}<br>{r["dd_mm"]}{qtd}</a>'
+        )
+    semana_html = '<div class=semana role=navigation aria-label="Outros dias">' + "".join(chips) + "</div>"
     corpo = f"""<div class=card>
     <div class=toolbar>
-      <a href="/?data={anterior}" aria-label="Dia anterior">‹</a>
+      <a href="/?data={anterior.isoformat()}" aria-label="Dia anterior">‹</a>
       <b>{agenda.DIAS_SEMANA[d.weekday()]}, {d.strftime('%d/%m/%Y')}</b>
-      <a href="/?data={proximo}" aria-label="Próximo dia">›</a>
-      <form method=get action=/><input type=date name=data value="{d}"><button type=submit>Ir</button></form>
+      <a href="/?data={proximo.isoformat()}" aria-label="Próximo dia">›</a>
+      <a href="/?data={hoje.isoformat()}">Hoje</a>
+      <form method=get action=/><input type=date name=data value="{d.isoformat()}"><button type=submit>Ir</button></form>
     </div>
+    {semana_html}
     <p class=total>{len(itens)} atendimentos · R$ {total:.2f}</p>
     {"<table><tr><th>Hora</th><th>Barbeiro</th><th>Serviço</th><th>Cliente</th><th>Valor</th><th></th></tr>"
-     + linhas + "</table>" if itens else "<p class=vazio>Nenhum horário marcado neste dia.</p>"}</div>"""
+     + linhas + "</table>" if itens else
+     "<p class=vazio>Nenhum horário neste dia. Toque em outro dia acima.</p>"}</div>"""
     if db.nome_salao() in ("Meu Salão", ""):
         corpo = (
             '<div class="card"><p class="aviso">Defina o nome do seu salão em '
