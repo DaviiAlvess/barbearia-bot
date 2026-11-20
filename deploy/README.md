@@ -57,19 +57,26 @@ docker compose logs -f whatsapp
 
 No celular: WhatsApp → Aparelhos conectados → escanear o QR.
 
-### 4. Abrir o painel (túnel SSH, sem Nginx)
+### 4. Abrir o painel na web
 
-No **seu computador**:
+**Opção A — subdomínio próprio (recomendado na VPS do Condo)**  
+No Caddy, dentro de `*.condoorganize.com`, um `handle` só para
+`barbearia.condoorganize.com` aponta para `127.0.0.1:8090` (o resto dos
+tenants continua em `:8080`). Assim:
+
+- https://barbearia.condoorganize.com — painel do bot  
+- https://barbearia.condoorganize.com/whatsapp — QR Code  
+- https://condoorganize.com — Condo intacto  
+
+**Opção B — túnel SSH** (sem domínio):
 
 ```bash
-ssh -L 8080:127.0.0.1:8080 barbearia@IP_DA_VPS
+ssh -L 8090:127.0.0.1:8090 root@IP_DA_VPS
 ```
 
-Abra http://localhost:8080 — usuário `dono`, senha `PAINEL_SENHA`.
+Abra http://localhost:8090 — usuário `dono`, senha `PAINEL_SENHA`.
 
-O Nginx do Condo Organize **não é usado**. Se um dia quiser domínio público,
-use Cloudflare Tunnel ou o `nginx-painel.conf` num *server* separado — nunca
-reaproveite o virtual host do outro projeto.
+Nunca reaproveite o virtual host genérico do Condo sem o `handle` separado.
 
 ## Comandos úteis (usuário `barbearia`)
 
