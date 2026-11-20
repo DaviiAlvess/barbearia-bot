@@ -90,6 +90,24 @@ def test_nomes_de_servico():
     assert agenda.achar_barbeiro("rafael") == "Rafael"
 
 
+def test_interpretar_data_nao_alucina_dia_semana():
+    """21/11/2026 é sábado — nunca sexta. Ferramenta e calendário batem."""
+    r = agenda.interpretar_data("2026-11-21")
+    assert r["dia_semana"] == "sábado" and r["data"] == "2026-11-21"
+    assert "sábado" in r["texto"] and "sexta" not in r["texto"]
+    # AGORA do teste é quinta 19/11 → próximo sábado = 21/11
+    r2 = agenda.interpretar_data("sábado")
+    assert r2["data"] == "2026-11-21" and r2["dia_semana"] == "sábado"
+    r3 = agenda.interpretar_data("21/11")
+    assert r3["data"] == "2026-11-21" and r3["dia_semana"] == "sábado"
+    r4 = agenda.interpretar_data("amanhã")
+    assert r4["data"] == "2026-11-20" and r4["dia_semana"] == "sexta"
+    assert ferramentas.executar("resolver_data", {"quando": "21/11"}, TEL)["dia_semana"] == "sábado"
+    cal = persona._calendario()
+    assert "sábado = 2026-11-21" in cal
+    assert "sexta = 2026-11-20" in cal
+
+
 def test_remarcar_e_lista_de_espera():
     # sábado do Diego lotado por um cliente; outro entra na espera
     ag = agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte", "Diego")

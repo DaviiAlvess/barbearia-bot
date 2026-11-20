@@ -9,9 +9,28 @@ PAUSA_HUMANO_HORAS = 2
 
 DECLARACOES = [
     {
+        "name": "resolver_data",
+        "description": "Converte o que o cliente disse (hoje, amanhã, sábado, 21/11, 2026-11-21) "
+                       "na data certa e no dia da semana CORRETO. Use SEMPRE antes de falar "
+                       "qual dia da semana é, e antes de chamar ver_horarios_livres/agendar. "
+                       "Nunca invente dia da semana de cabeça.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "quando": {
+                    "type": "string",
+                    "description": "Texto do cliente: 'sábado', 'amanhã', '21/11', '2026-11-21'…",
+                },
+            },
+            "required": ["quando"],
+        },
+    },
+    {
         "name": "ver_horarios_livres",
         "description": "Consulta os horários livres de um dia para um serviço. "
-                       "Use SEMPRE antes de oferecer ou confirmar um horário.",
+                       "Use SEMPRE antes de oferecer ou confirmar um horário. "
+                       "A data deve ser AAAA-MM-DD (pegue com resolver_data). "
+                       "O campo dia_semana da resposta é a verdade — use-o ao falar com o cliente.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -164,6 +183,8 @@ def executar(nome, args, telefone, enviar=None):
     enviar(telefone, texto) é usado para mandar mensagem para outras pessoas
     (dono da barbearia, clientes da lista de espera)."""
     try:
+        if nome == "resolver_data":
+            return agenda.interpretar_data(args.get("quando") or args.get("data") or "")
         if nome == "ver_horarios_livres":
             return agenda.horarios_livres(args.get("data"), args.get("servico", ""), args.get("barbeiro"))
         if nome == "agendar":

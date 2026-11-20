@@ -70,6 +70,79 @@ def ler_data(txt):
         raise ErroAgenda("Data inválida, use o formato AAAA-MM-DD.") from None
 
 
+def _proximo_dia_semana(alvo: int, a_partir: date | None = None) -> date:
+    """Próxima ocorrência do weekday (0=segunda … 6=domingo), incluindo hoje."""
+    base = a_partir or agora().date()
+    delta = (alvo - base.weekday()) % 7
+    return base + timedelta(days=delta)
+
+
+def interpretar_data(txt: str) -> dict:
+    """Converte 'hoje', 'amanhã', 'sábado', '21/11', '2026-11-21' em data + dia_semana corretos.
+
+    Use SEMPRE antes de falar o dia da semana para o cliente — não invente.
+    """
+    if not txt or not str(txt).strip():
+        raise ErroAgenda("Informe a data (ex.: sábado, amanhã, 21/11 ou 2026-11-21).")
+    bruto = str(txt).strip()
+    n = _normalizar(bruto)
+    hoje = agora().date()
+
+    if n in ("hoje", "hj"):
+        d = hoje
+    elif n.startswith("amanh"):
+        d = hoje + timedelta(days=1)
+    elif n in ("depois de amanha", "depois de amanhã"):
+        d = hoje + timedelta(days=2)
+    else:
+        # AAAA-MM-DD
+        try:
+            d = ler_data(bruto[:10] if len(bruto) >= 10 and bruto[4] == "-" else bruto)
+        except ErroAgenda:
+            d = None
+        # DD/MM ou DD/MM/AAAA
+        if d is None and "/" in bruto:
+            partes = bruto.replace("-", "/").split("/")
+            try:
+                dia, mes = int(partes[0]), int(partes[1])
+                ano = int(partes[2]) if len(partes) >= 3 else hoje.year
+                d = date(ano, mes, dia)
+                if d < hoje and len(partes) < 3:
+                    d = date(ano + 1, mes, dia)
+            except (ValueError, IndexError):
+                d = None
+        # nome do dia da semana → próxima ocorrência
+        if d is None:
+            for i, nome in enumerate(DIAS_SEMANA):
+                if _normalizar(nome) == n or n.startswith(_normalizar(nome)[:3]):
+                    d = _proximo_dia_semana(i, hoje)
+                    break
+        if d is None:
+            raise ErroAgenda(
+                f"Não entendi a data '{txt}'. Use hoje, amanhã, um dia da semana "
+                f"(sábado…), DD/MM ou AAAA-MM-DD."
+            )
+
+    aberto = expediente(d) is not None
+    return {
+        "ok": True,
+        "pedido": bruto,
+        "data": d.isoformat(),
+        "dia_semana": DIAS_SEMANA[d.weekday()],
+        "dd_mm": d.strftime("%d/%m"),
+        "rotulo": (
+            "hoje" if d == hoje else
+            "amanhã" if d == hoje + timedelta(days=1) else
+            DIAS_SEMANA[d.weekday()]
+        ),
+        "aberto": aberto,
+        "texto": (
+            f"{DIAS_SEMANA[d.weekday()]} {d.strftime('%d/%m/%Y')} ({d.isoformat()})"
+            + (" — aberto" if aberto else " — FECHADO")
+        ),
+    }
+
+
 def _hm(d: date, hhmm: str):
     h, m = map(int, hhmm.split(":"))
     return datetime(d.year, d.month, d.day, h, m)

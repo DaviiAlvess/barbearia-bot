@@ -10,10 +10,13 @@ def _calendario():
     linhas = []
     for i in range(config.DIAS_ANTECEDENCIA + 1):
         d = hoje + timedelta(days=i)
-        rotulo = "hoje" if i == 0 else "amanhã" if i == 1 else ""
+        rotulo = " ← HOJE" if i == 0 else " ← AMANHÃ" if i == 1 else ""
         status = "aberto" if agenda.expediente(d) else "FECHADO"
-        linhas.append(f"- {agenda.DIAS_SEMANA[d.weekday()]} {d.strftime('%d/%m')} = {d.isoformat()} "
-                      f"{rotulo} ({status})")
+        # Formato explícito: dia_semana + data completa (evita a IA trocar sexta/sábado)
+        linhas.append(
+            f"- {agenda.DIAS_SEMANA[d.weekday()]} = {d.isoformat()} ({d.strftime('%d/%m/%Y')}) "
+            f"{status}{rotulo}"
+        )
     return "\n".join(linhas)
 
 
@@ -99,11 +102,13 @@ BOAS MANEIRAS:
 - Mensagem fora do horário de funcionamento: responda normalmente, mas não prometa que alguém da equipe vai ver na hora.
 
 REGRAS DE VERDADE:
-- Nunca invente horário livre, preço, serviço ou barbeiro. Para horários, use SEMPRE a ferramenta ver_horarios_livres.
+- Nunca invente horário livre, preço, serviço, barbeiro ou DIA DA SEMANA. Errar sexta/sábado é grave.
+- Para qualquer data que o cliente citar ("sábado", "21/11", "amanhã"), chame primeiro resolver_data e use o dia_semana/data que ela devolver. Depois use ver_horarios_livres com a data AAAA-MM-DD.
+- Ao falar com o cliente, copie o dia_semana das ferramentas (resolver_data, ver_horarios_livres, agendar) ou do Calendário abaixo. Nunca calcule o dia da semana de cabeça.
 - Se perguntarem preço, serviços ou a tabela de valores, use ver_tabela_servicos (ou a lista Serviços abaixo). Não invente preço.
 - Ofereça 2 ou 3 horários próximos do que o cliente pediu, não a lista inteira.
-- Antes de agendar, confirme em uma frase: serviço, dia, hora e barbeiro. Agende só depois do "sim".
-- Depois de agendar, confirme de forma natural (dia da semana, data, hora, barbeiro, valor) e lembre do endereço.
+- Antes de agendar, confirme em uma frase: serviço, dia da semana + data, hora e barbeiro (ex.: "sábado 21/11 às 14:00"). Agende só depois do "sim".
+- Depois de agendar, confirme com o dia_semana e a data que a ferramenta agendar devolveu (não invente) e lembre do endereço.
 - Se uma ferramenta der erro, explique de forma simples e ofereça outra opção.
 - Dia lotado ou sem horário que sirva: ofereça outro dia ou a lista de espera (entrar_lista_espera).
 - Para trocar horário use remarcar_agendamento; para cancelar, confirme antes qual é o horário.
@@ -115,8 +120,8 @@ REGRAS DE VERDADE:
 - Reclamação, cliente irritado, pedido de falar com alguém, ou algo que você não resolve: use chamar_atendente_humano.
 - Não dê conselho médico (queda de cabelo forte, feridas, alergia): sugira procurar um dermatologista.
 
-AGORA: {agenda.DIAS_SEMANA[agora.weekday()]}, {agora.strftime('%d/%m/%Y %H:%M')}.
-Calendário (use para converter "sábado", "amanhã", "semana que vem" em data):
+AGORA: {agenda.DIAS_SEMANA[agora.weekday()]}, {agora.strftime('%d/%m/%Y %H:%M')} (fuso America/Bahia).
+Calendário oficial (ÚNICA fonte de dia da semana — não invente fora desta lista; se precisar converter o que o cliente falou, use resolver_data):
 {_calendario()}
 
 A BARBEARIA:
