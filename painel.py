@@ -1,4 +1,4 @@
-"""Painel web do dono: agenda do dia, cancelar, fechar dia/folga e avaliações.
+"""Painel web do dono: agenda, bloqueios, avaliações e QR do WhatsApp.
 
 Rodar:  uvicorn painel:app --port 8080
 Abrir:  http://localhost:8080  (usuário: dono, senha: PAINEL_SENHA do .env)
@@ -10,9 +10,10 @@ import os
 import secrets
 from datetime import timedelta
 
+import requests
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 load_dotenv()
@@ -23,6 +24,8 @@ from barbearia import agenda, db  # noqa: E402
 app = FastAPI(title=f"Painel - {config.NOME_BARBEARIA}", docs_url=None, redoc_url=None)
 seguranca = HTTPBasic()
 db.criar_tabelas()
+
+SERVIDOR_WHATSAPP = os.getenv("SERVIDOR_WHATSAPP", "http://localhost:3000").rstrip("/")
 
 
 def autenticar(cred: HTTPBasicCredentials = Depends(seguranca)) -> None:
@@ -52,15 +55,31 @@ th{font-size:13px;color:#666}.nav a{margin-right:12px;color:#1d1b19}
 button{background:#1d1b19;color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
 button.perigo{background:#b3261e}input,select{padding:6px;border:1px solid #ccc;border-radius:6px}
 .total{font-size:18px;font-weight:600}.vazio{color:#888}
+.ok{color:#1a7f37;font-weight:600}.aviso{color:#9a6700}.qr{display:block;margin:16px auto;max-width:360px;width:100%;
+background:#fff;border:1px solid #eee;border-radius:8px}
+.passos{line-height:1.6}
 """
 
 
-def pagina(titulo: str, corpo: str) -> HTMLResponse:
+def pagina(titulo: str, corpo: str, *, refresh: int | None = None) -> HTMLResponse:
+    meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
     return HTMLResponse(f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(titulo)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">{meta}
+<title>{e(titulo)}</title>
 <style>{ESTILO}</style></head><body><header>💈 {e(config.NOME_BARBEARIA)}</header><main>
 <div class="nav card"><a href="/">Agenda</a><a href="/bloqueios">Folgas e feriados</a>
-<a href="/avaliacoes">Avaliações</a></div>{corpo}</main></body></html>""")
+<a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp / QR</a></div>
+{corpo}</main></body></html>""")
+
+
+def _status_whatsapp() -> dict:
+    try:
+        r = requests.get(f"{SERVIDOR_WHATSAPP}/status", timeout=3)
+        if r.status_code == 200:
+            return r.json()
+        return {"conectado": False, "temQr": False, "erro": f"HTTP {r.status_code}"}
+    except requests.RequestException as exc:
+        return {"conectado": False, "temQr": False, "erro": str(exc)}
 
 
 @app.get("/", dependencies=[Depends(autenticar)])
@@ -145,3 +164,51 @@ def ver_avaliacoes():
     <div class=card><h3>Comentários</h3>{"<table>" + comentarios + "</table>" if comentarios
     else "<p class=vazio>Nenhum comentário.</p>"}</div>"""
     return pagina("Avaliações", corpo)
+
+
+@app.get("/whatsapp", dependencies=[Depends(autenticar)])
+def ver_whatsapp():
+    """Só status + QR para conectar o celular. Não mostra conversas."""
+    st = _status_whatsapp()
+    if st.get("erro") and not st.get("conectado") and not st.get("temQr"):
+        corpo = f"""<div class=card><h3>WhatsApp</h3>
+        <p class=aviso>Não consegui falar com o servidor do WhatsApp.</p>
+        <p class=vazio>{e(st['erro'])}</p>
+        <p>Confira se o container <code>whatsapp</code> está no ar.</p>
+        <p><a href="/whatsapp">Tentar de novo</a></p></div>"""
+        return pagina("WhatsApp", corpo, refresh=8)
+
+    if st.get("conectado"):
+        corpo = """<div class=card><h3>WhatsApp</h3>
+        <p class=ok>Conectado. Não precisa escanear QR.</p>
+        <p class=vazio>Se desconectar, esta página mostra o QR automaticamente.</p>
+        <p><a href="/whatsapp">Atualizar</a></p></div>"""
+        return pagina("WhatsApp", corpo, refresh=30)
+
+    if st.get("temQr"):
+        corpo = """<div class=card><h3>Escaneie o QR Code</h3>
+        <ol class=passos>
+          <li>No celular: WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b></li>
+          <li>Aponte a câmera para o código abaixo</li>
+        </ol>
+        <img class=qr src="/whatsapp/qr.png" alt="QR Code do WhatsApp">
+        <p class=vazio>A página atualiza sozinha a cada 5s. O QR muda de tempos em tempos.</p>
+        </div>"""
+        return pagina("WhatsApp", corpo, refresh=5)
+
+    corpo = """<div class=card><h3>WhatsApp</h3>
+    <p class=aviso>Aguardando o QR… o Chromium ainda está iniciando.</p>
+    <p><a href="/whatsapp">Atualizar</a></p></div>"""
+    return pagina("WhatsApp", corpo, refresh=5)
+
+
+@app.get("/whatsapp/qr.png", dependencies=[Depends(autenticar)])
+def whatsapp_qr_png():
+    try:
+        r = requests.get(f"{SERVIDOR_WHATSAPP}/qr.png", timeout=5)
+    except requests.RequestException as exc:
+        raise HTTPException(502, f"Servidor WhatsApp inacessível: {exc}") from exc
+    if r.status_code != 200:
+        raise HTTPException(404, "Sem QR no momento")
+    return Response(content=r.content, media_type="image/png",
+                    headers={"Cache-Control": "no-store"})

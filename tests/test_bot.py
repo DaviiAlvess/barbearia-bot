@@ -298,3 +298,46 @@ def test_painel(monkeypatch):
                auth=("dono", "s3nha"), follow_redirects=False)
     assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]
     assert "Data inválida" in c.get("/?data=xx", auth=("dono", "s3nha")).text
+
+
+def test_painel_whatsapp_qr(monkeypatch):
+    """Página do QR: autentica, mostra status e faz proxy do PNG — sem conversas."""
+    from fastapi.testclient import TestClient
+
+    import painel
+
+    monkeypatch.setenv("PAINEL_SENHA", "s3nha")
+    monkeypatch.setattr(painel, "SERVIDOR_WHATSAPP", "http://whatsapp-fake")
+
+    class FakeResp:
+        def __init__(self, status_code=200, payload=None, content=b""):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.content = content
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, timeout=3):
+        if url.endswith("/status"):
+            return FakeResp(200, {"conectado": False, "temQr": True, "idSessao": "8113"})
+        if url.endswith("/qr.png"):
+            return FakeResp(200, content=b"\x89PNG\r\n\x1a\nfake")
+        raise AssertionError(url)
+
+    monkeypatch.setattr(painel.requests, "get", fake_get)
+    c = TestClient(painel.app)
+    assert c.get("/whatsapp").status_code == 401
+    r = c.get("/whatsapp", auth=("dono", "s3nha"))
+    assert r.status_code == 200
+    assert "Escaneie o QR" in r.text and "/whatsapp/qr.png" in r.text
+    assert "conversa" not in r.text.lower()
+    png = c.get("/whatsapp/qr.png", auth=("dono", "s3nha"))
+    assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
+
+    def fake_conectado(url, timeout=3):
+        return FakeResp(200, {"conectado": True, "temQr": False, "idSessao": "8113"})
+
+    monkeypatch.setattr(painel.requests, "get", fake_conectado)
+    r = c.get("/whatsapp", auth=("dono", "s3nha"))
+    assert r.status_code == 200 and "Conectado" in r.text

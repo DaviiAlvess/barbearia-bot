@@ -1,8 +1,10 @@
 // Servidor que conecta o WhatsApp (pelo QR code) ao bot em Python.
 // Mesmo esquema da Belinha: emite "novaMensagem" por Socket.IO e recebe POST /enviarMensagem.
+// Também serve o QR em /qr.png para o painel web do dono.
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const QRCode = require('qrcode');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
@@ -24,14 +26,30 @@ const client = new Client({
 });
 
 let pronto = false;
+let ultimoQr = null; // string do QR atual (null se conectado ou ainda iniciando)
 
 client.on('qr', (qr) => {
+  pronto = false;
+  ultimoQr = qr;
   console.log('📱 Escaneie o QR code no WhatsApp > Aparelhos conectados:');
+  console.log('   (também disponível no painel em /whatsapp)');
   qrcode.generate(qr, { small: true });
 });
-client.on('ready', () => { pronto = true; console.log('✅ WhatsApp conectado!'); });
+client.on('ready', () => {
+  pronto = true;
+  ultimoQr = null;
+  console.log('✅ WhatsApp conectado!');
+});
+client.on('authenticated', () => {
+  console.log('🔐 WhatsApp autenticado (sessão salva).');
+});
+client.on('auth_failure', (msg) => {
+  pronto = false;
+  console.error('❌ Falha na autenticação:', msg);
+});
 client.on('disconnected', (motivo) => {
   pronto = false;
+  ultimoQr = null;
   console.log('⚠️ WhatsApp desconectado:', motivo, '- reiniciando...');
   client.initialize();
 });
@@ -74,7 +92,25 @@ app.post('/digitando', async (req, res) => {
   }
 });
 
-app.get('/status', (_req, res) => res.json({ conectado: pronto, idSessao: ID_SESSAO }));
+app.get('/status', (_req, res) => res.json({
+  conectado: pronto,
+  temQr: Boolean(ultimoQr),
+  idSessao: ID_SESSAO,
+}));
+
+// PNG do QR para o painel (só na rede interna do Docker; o painel autentica e faz proxy)
+app.get('/qr.png', async (_req, res) => {
+  if (!ultimoQr) {
+    return res.status(404).json({ erro: 'Sem QR no momento (já conectado ou ainda iniciando)' });
+  }
+  try {
+    const png = await QRCode.toBuffer(ultimoQr, { type: 'png', width: 360, margin: 2 });
+    res.set('Cache-Control', 'no-store');
+    res.type('png').send(png);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
 io.on('connection', () => console.log('🐍 Bot Python conectado'));
 

@@ -100,6 +100,7 @@ em `localhost:3000`, sessão `8113`). Conexão por QR code não é oficial: use 
 uvicorn painel:app --port 8080
 ```
 Abra http://localhost:8080 (usuário `dono`, senha `PAINEL_SENHA`).
+Na página **WhatsApp / QR** você lê o QR Code no navegador (sem precisar do `docker compose logs`).
 
 ### Tudo de uma vez com Docker
 ```bash
