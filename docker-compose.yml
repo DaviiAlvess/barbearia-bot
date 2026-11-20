@@ -1,6 +1,8 @@
 # Sobe tudo com: docker compose up -d
 # Para ver o QR code na primeira vez: docker compose logs -f whatsapp
-# Os limites de memória (mem_limit) protegem outros projetos que rodam na mesma VPS.
+# Os limites de memória (mem_limit) protegem outros projetos na mesma VPS.
+# Em VPS compartilhada, prefira Docker rootless do usuário "barbearia"
+# (veja deploy/README.md) — mem_limit exige cgroup delegado (setup-rootless.sh).
 name: barbearia-bot
 services:
   whatsapp:

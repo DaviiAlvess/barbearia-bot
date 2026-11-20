@@ -107,11 +107,26 @@ docker compose up -d
 docker compose logs -f whatsapp   # na primeira vez, para escanear o QR code
 ```
 
-### Na mesma VPS de outro projeto (Ubuntu)
-O bot roda isolado no Docker e tem limite de memória (cerca de 1,6 GB no máximo), então não
-atrapalha outros projetos. O painel só fica acessível pela própria VPS (127.0.0.1); para abrir de fora,
-use o Nginx (`deploy/nginx-painel.conf`) ou um túnel SSH. Para o backup diário do banco, use o
-`deploy/backup.sh` no cron.
+### Na mesma VPS de outro projeto (Ubuntu) — isolamento forte
+Recomendado: usuário Linux `barbearia` + **Docker rootless** (sem sudo, sem grupo
+`docker` do sistema). Assim o bot não enxerga o código/banco do outro projeto
+(ex.: Condo Organize), tem teto de ~1,6 GB de RAM e o painel abre só por túnel SSH
+(sem mexer no Nginx dele).
+
+```bash
+# 1) como root, uma vez:
+sudo bash deploy/setup-rootless.sh
+
+# 2) como usuário barbearia:
+sudo -iu barbearia
+git clone https://github.com/DaviiAlvess/barbearia-bot.git ~/barbearia-bot
+bash ~/barbearia-bot/deploy/instalar-bot.sh
+# edite o .env quando pedido, rode o instalar de novo, escaneie o QR:
+docker compose -f ~/barbearia-bot/docker-compose.yml logs -f whatsapp
+```
+
+Passo a passo completo, tabela do que fica separado e troubleshooting:
+**[`deploy/README.md`](deploy/README.md)**.
 
 ### Opção: API oficial da Meta
 Mais estável, mas exige um app na Meta e um servidor com HTTPS. Preencha `WHATSAPP_TOKEN`,
