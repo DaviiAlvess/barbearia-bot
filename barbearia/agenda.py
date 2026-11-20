@@ -47,14 +47,20 @@ def achar_servico(nome):
     raise ErroAgenda(f"Serviço '{nome}' não existe. Serviços: {', '.join(tabela)}")
 
 
+def barbeiros():
+    """Equipe atual (painel ou config.py)."""
+    return db.listar_barbeiros()
+
+
 def achar_barbeiro(nome):
     if not nome:
         return None
+    equipe = barbeiros()
     alvo = _normalizar(nome)
-    for b in config.BARBEIROS:
+    for b in equipe:
         if _normalizar(b) == alvo:
             return b
-    raise ErroAgenda(f"Não temos barbeiro chamado '{nome}'. Equipe: {', '.join(config.BARBEIROS)}")
+    raise ErroAgenda(f"Não temos barbeiro chamado '{nome}'. Equipe: {', '.join(equipe)}")
 
 
 def ler_data(txt):
@@ -96,7 +102,7 @@ def barbeiros_do_dia(d: date):
     if not expediente(d):
         return []
     de_folga = {b["barbeiro"] for b in _bloqueios(d) if b["barbeiro"]}
-    return [b for b, info in config.BARBEIROS.items()
+    return [b for b, info in barbeiros().items()
             if d.weekday() not in info.get("folgas", []) and b not in de_folga]
 
 

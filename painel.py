@@ -178,6 +178,7 @@ def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool 
         nav = """<nav class="nav" aria-label="Principal">
 <a href="/">Agenda</a><a href="/bloqueios">Folgas</a>
 <a href="/avaliacoes">Avaliações</a><a href="/servicos">Serviços</a>
+<a href="/profissionais">Profissionais</a>
 <a href="/whatsapp">WhatsApp</a>
 <a href="/salao">Salão</a>
 <a class="sair" href="/sair">Sair</a></nav>"""
@@ -298,7 +299,7 @@ def ver_bloqueios():
         f"<input type=hidden name=data value={e(r['data'])}>"
         f"<input type=hidden name=barbeiro value=\"{e(r['barbeiro'] or '')}\"><button>Remover</button>"
         f"</form></td></tr>" for r in rows)
-    opcoes = "".join(f"<option>{e(b)}</option>" for b in config.BARBEIROS)
+    opcoes = "".join(f"<option>{e(b)}</option>" for b in db.listar_barbeiros())
     corpo = f"""<div class=card><h3>Fechar dia ou dar folga</h3>
     <form method=post action=/bloquear class=form-row>
     <div><label>Data</label><input type=date name=data required></div>
@@ -329,18 +330,26 @@ def desbloquear(data: str = Form(...), barbeiro: str = Form("")):
 
 
 @app.get("/salao", dependencies=[Depends(autenticar)])
-def ver_salao(ok: str | None = None):
+def ver_salao(ok: str | None = None, erro: str | None = None):
     nome = db.nome_salao()
-    msg = '<p class="ok">Nome do salão salvo.</p>' if ok else ""
+    end = db.endereco()
+    msg = ""
+    if ok:
+        msg = '<p class="ok">Dados do salão salvos. O WhatsApp já usa nome e endereço.</p>'
+    if erro:
+        msg = f'<p class="erro">{e(erro)}</p>'
     corpo = f"""<div class=card>
     <h2>Seu salão</h2>
-    <p class=vazio>Este nome aparece no painel e nas conversas do WhatsApp (o app continua sendo
-    {e(config.NOME_APP)}).</p>
+    <p class=vazio>Nome e endereço aparecem no painel, nas conversas e nos lembretes do WhatsApp
+    (o app continua sendo {e(config.NOME_APP)}).</p>
     {msg}
     <form method=post action=/salao>
       <label for=nome>Nome do salão</label>
       <input id=nome name=nome maxlength=80 required value="{e(nome)}"
        placeholder="Ex.: Barbearia Navalha de Ouro">
+      <label for=endereco>Endereço</label>
+      <input id=endereco name=endereco maxlength=200 required value="{e(end)}"
+       placeholder="Ex.: Rua Exemplo, 123 - Centro">
       <button type=submit>Salvar</button>
     </form>
     </div>"""
@@ -348,12 +357,89 @@ def ver_salao(ok: str | None = None):
 
 
 @app.post("/salao", dependencies=[Depends(autenticar)])
-def salvar_salao(nome: str = Form(...)):
+def salvar_salao(nome: str = Form(...), endereco: str = Form(...)):
     nome = (nome or "").strip()[:80]
     if not nome:
-        return RedirectResponse("/salao", status_code=303)
-    db.salvar_config("nome_salao", nome)
+        return RedirectResponse("/salao?erro=" + quote("Informe o nome do salão."), status_code=303)
+    try:
+        db.salvar_config("nome_salao", nome)
+        db.salvar_endereco(endereco)
+    except ValueError as exc:
+        return RedirectResponse("/salao?erro=" + quote(str(exc)), status_code=303)
     return RedirectResponse("/salao?ok=1", status_code=303)
+
+
+DIAS_FOLGA = [
+    (0, "Seg"), (1, "Ter"), (2, "Qua"), (3, "Qui"),
+    (4, "Sex"), (5, "Sáb"), (6, "Dom"),
+]
+
+
+@app.get("/profissionais", dependencies=[Depends(autenticar)])
+def ver_profissionais(ok: str | None = None, erro: str | None = None):
+    equipe = list(db.listar_barbeiros().items()) + [("", {"especialidade": "", "folgas": []})] * 2
+    msg = ""
+    if ok:
+        msg = '<p class="ok">Equipe salva. O atendente do WhatsApp já usa esses profissionais.</p>'
+    if erro:
+        msg = f'<p class="erro">{e(erro)}</p>'
+    linhas = ""
+    for i, (n, info) in enumerate(equipe):
+        folgas = set(info.get("folgas") or [])
+        checks = "".join(
+            f'<label style="display:inline;margin-right:8px;text-transform:none;letter-spacing:0">'
+            f'<input type=checkbox name="folga_{i}" value="{d}"'
+            f'{" checked" if d in folgas else ""}> {rot}</label>'
+            for d, rot in DIAS_FOLGA
+        )
+        req = " required" if n else ""
+        linhas += (
+            f'<tr><td><input name="nome" value="{e(n)}" maxlength=60{req} '
+            f'placeholder="Novo profissional"></td>'
+            f'<td><input name="especialidade" value="{e(info.get("especialidade") or "")}" '
+            f'maxlength=80 placeholder="Ex.: degradê"></td>'
+            f'<td>{checks}</td></tr>'
+        )
+    corpo = f"""<div class=card>
+    <h2>Profissionais</h2>
+    <p class=vazio>Quem atende no salão. O bot usa esta lista para marcar horários e sugerir barbeiro.
+    Deixe o nome em branco para remover. Folgas semanais: dias em que a pessoa não trabalha.</p>
+    {msg}
+    <form method=post action=/profissionais>
+    <table>
+      <tr><th>Nome</th><th>Especialidade</th><th>Folgas na semana</th></tr>
+      {linhas}
+    </table>
+    <button type=submit>Salvar equipe</button>
+    </form>
+    </div>"""
+    return pagina("Profissionais", corpo)
+
+
+@app.post("/profissionais", dependencies=[Depends(autenticar)])
+async def salvar_profissionais_painel(request: Request):
+    form = await request.form()
+    nomes = form.getlist("nome")
+    especialidades = form.getlist("especialidade")
+    itens: list[dict] = []
+    for i, nome in enumerate(nomes):
+        nome = (nome or "").strip()
+        if not nome:
+            continue
+        esp = especialidades[i] if i < len(especialidades) else ""
+        vals = form.getlist(f"folga_{i}")
+        folgas = []
+        for v in vals:
+            try:
+                folgas.append(int(v))
+            except ValueError:
+                pass
+        itens.append({"nome": nome[:60], "especialidade": (esp or "").strip()[:80], "folgas": folgas})
+    try:
+        db.salvar_barbeiros(itens)
+    except ValueError as exc:
+        return RedirectResponse("/profissionais?erro=" + quote(str(exc)), status_code=303)
+    return RedirectResponse("/profissionais?ok=1", status_code=303)
 
 
 @app.get("/servicos", dependencies=[Depends(autenticar)])

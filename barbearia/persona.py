@@ -32,10 +32,7 @@ def _periodo(h):
 def montar(cliente=None, ultimo=None, conversa_nova=True):
     agora = agenda.agora()
     servicos = db.tabela_servicos_texto()
-    equipe = "\n".join(
-        f"- {b}: manda bem em {i.get('especialidade', 'cortes em geral')}"
-        + (f" (folga: {', '.join(agenda.DIAS_SEMANA[f] for f in i['folgas'])})" if i.get("folgas") else "")
-        for b, i in config.BARBEIROS.items())
+    equipe = db.tabela_barbeiros_texto()
 
     if cliente and cliente.get("nome"):
         sobre = f"Cliente conhecido: {cliente['nome']}."
@@ -108,7 +105,7 @@ Calendário (use para converter "sábado", "amanhã", "semana que vem" em data):
 {_calendario()}
 
 A BARBEARIA:
-- Endereço: {config.ENDERECO}
+- Endereço: {db.endereco()}
 - Funcionamento: {_horarios()}. Almoço: {config.ALMOCO[0]}-{config.ALMOCO[1]} se houver.
 - Pagamento: {config.FORMAS_PAGAMENTO}
 Serviços:

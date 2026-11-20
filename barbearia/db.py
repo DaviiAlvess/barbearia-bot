@@ -309,3 +309,114 @@ def tabela_servicos_texto() -> str:
     for nome, (preco, mins) in listar_servicos().items():
         linhas.append(f"- {nome}: R$ {preco:.2f} (~{mins} min)".replace(".", ","))
     return "\n".join(linhas)
+
+
+def endereco() -> str:
+    """Endereço do salão: painel tem prioridade sobre config.py."""
+    import config
+    salvo = obter_config("endereco")
+    if salvo and salvo.strip():
+        return salvo.strip()[:200]
+    return (config.ENDERECO or "").strip()
+
+
+def salvar_endereco(texto: str) -> None:
+    texto = (texto or "").strip()[:200]
+    if not texto:
+        raise ValueError("Informe o endereço.")
+    salvar_config("endereco", texto)
+
+
+def _barbeiros_padrao() -> dict[str, dict[str, Any]]:
+    import config
+    out: dict[str, dict[str, Any]] = {}
+    for nome, info in config.BARBEIROS.items():
+        out[str(nome)] = {
+            "folgas": list(info.get("folgas") or []),
+            "especialidade": str(info.get("especialidade") or ""),
+        }
+    return out
+
+
+def listar_barbeiros() -> dict[str, dict[str, Any]]:
+    """Equipe: {nome: {folgas: [0-6], especialidade: str}}."""
+    bruto = obter_config("barbeiros")
+    if not bruto:
+        return _barbeiros_padrao()
+    try:
+        dados = json.loads(bruto)
+    except json.JSONDecodeError:
+        return _barbeiros_padrao()
+    out: dict[str, dict[str, Any]] = {}
+    if isinstance(dados, dict):
+        itens = dados.items()
+    elif isinstance(dados, list):
+        itens = ((i.get("nome"), i) for i in dados if isinstance(i, dict))
+    else:
+        return _barbeiros_padrao()
+    for nome, val in itens:
+        if not nome:
+            continue
+        nome = str(nome).strip()[:60]
+        if not nome:
+            continue
+        if not isinstance(val, dict):
+            val = {}
+        folgas_raw = val.get("folgas") or []
+        folgas: list[int] = []
+        for f in folgas_raw:
+            try:
+                fi = int(f)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= fi <= 6:
+                folgas.append(fi)
+        out[nome] = {
+            "folgas": sorted(set(folgas)),
+            "especialidade": str(val.get("especialidade") or "")[:80],
+        }
+    return out or _barbeiros_padrao()
+
+
+def salvar_barbeiros(barbeiros: dict[str, dict] | list[dict]) -> None:
+    """Persiste a equipe. Aceita dict ou lista de {nome, especialidade, folgas}."""
+    normalizado: dict[str, dict] = {}
+    if isinstance(barbeiros, dict):
+        pares = barbeiros.items()
+    else:
+        pares = ((b.get("nome"), b) for b in barbeiros)
+    for nome, val in pares:
+        nome = (str(nome) if nome is not None else "").strip()[:60]
+        if not nome:
+            continue
+        if not isinstance(val, dict):
+            val = {}
+        folgas = []
+        for f in val.get("folgas") or []:
+            try:
+                fi = int(f)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= fi <= 6:
+                folgas.append(fi)
+        normalizado[nome] = {
+            "folgas": sorted(set(folgas)),
+            "especialidade": str(val.get("especialidade") or "")[:80],
+        }
+    if not normalizado:
+        raise ValueError("Informe ao menos um profissional.")
+    salvar_config("barbeiros", json.dumps(normalizado, ensure_ascii=False))
+
+
+def tabela_barbeiros_texto() -> str:
+    from barbearia import agenda
+    linhas = []
+    for nome, info in listar_barbeiros().items():
+        esp = info.get("especialidade") or "cortes em geral"
+        folgas = info.get("folgas") or []
+        extra = ""
+        if folgas:
+            dias = ", ".join(agenda.DIAS_SEMANA[f] for f in folgas if 0 <= f <= 6)
+            extra = f" (folga: {dias})"
+        linhas.append(f"- {nome}: manda bem em {esp}{extra}")
+    return "\n".join(linhas)

@@ -11,7 +11,6 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import timedelta
 
-import config
 from barbearia import agenda, db, ferramentas, humanizar, persona
 from barbearia.ia import ErroIA
 
@@ -268,4 +267,4 @@ class Atendente:
             f"Estamos te esperando 💈",
             f"Passando pra lembrar{saud}: hoje às {lembrete['hora']} com o {lembrete['barbeiro']}. "
             f"Até daqui a pouco!",
-        ]) + f"\n📍 {config.ENDERECO}"
+        ]) + f"\n📍 {db.endereco()}"

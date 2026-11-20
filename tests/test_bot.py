@@ -298,6 +298,19 @@ def test_tabela_servicos_banco_e_ferramenta():
     assert "R$" in r["texto"]
 
 
+def test_endereco_e_profissionais_banco():
+    db.salvar_endereco("Av. Central, 10")
+    assert db.endereco() == "Av. Central, 10"
+    db.salvar_barbeiros([
+        {"nome": "João", "especialidade": "social", "folgas": [0]},
+        {"nome": "Maria", "especialidade": "barba", "folgas": []},
+    ])
+    assert "João" in db.listar_barbeiros()
+    assert agenda.achar_barbeiro("joao") == "João"
+    assert 0 in db.listar_barbeiros()["João"]["folgas"]
+    assert "João" in db.tabela_barbeiros_texto()
+
+
 def test_nome_salao_painel_e_banco():
 
     assert db.nome_salao() == "Meu Salão"
@@ -323,11 +336,26 @@ def test_painel(monkeypatch):
     r = c.get(f"/?data={SABADO}")
     assert r.status_code == 200 and "R$ 35.00" in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
-    # nome do salão pelo painel
+    # nome + endereço do salão pelo painel
     assert c.get("/salao").status_code == 200 and "Nome do salão" in c.get("/salao").text
-    r = c.post("/salao", data={"nome": "Navalha & Cia"}, follow_redirects=False)
+    r = c.post("/salao", data={"nome": "Navalha & Cia", "endereco": "Rua A, 1"}, follow_redirects=False)
     assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
+    assert db.endereco() == "Rua A, 1"
     assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
+    # profissionais
+    assert c.get("/profissionais").status_code == 200 and "Profissionais" in c.get("/profissionais").text
+    r = c.post(
+        "/profissionais",
+        data={
+            "nome": ["Rafael", "Diego", ""],
+            "especialidade": ["degradê", "barba", ""],
+            "folga_1": ["2"],
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and "ok=1" in r.headers["location"]
+    assert set(db.listar_barbeiros()) == {"Rafael", "Diego"}
+    assert db.listar_barbeiros()["Diego"]["folgas"] == [2]
     # tabela de serviços no painel
     assert c.get("/servicos").status_code == 200 and "Serviços e preços" in c.get("/servicos").text
     r = c.post(
