@@ -31,19 +31,32 @@ def _modelo_sugerido(erro: str) -> str | None:
     return m.group(1) if m else None
 
 
+_CAMPOS_PART = ("text", "functionCall", "functionResponse", "inlineData", "fileData")
+
+
+def _limpar_part(p: dict) -> dict | None:
+    """Mantém só campos que a API aceita de volta (tira thoughtSignature etc.)."""
+    if not isinstance(p, dict):
+        return None
+    out = {k: p[k] for k in _CAMPOS_PART if k in p and p[k] not in (None, "", [], {})}
+    return out or None
+
+
 def _sanitizar_historico(historico: list) -> list:
     """Remove turnos inválidos que geram HTTP 400 (parts vazias, roles quebradas)."""
     limpo = []
     for h in historico or []:
         if not isinstance(h, dict):
             continue
-        parts = [p for p in (h.get("parts") or []) if isinstance(p, dict) and p]
+        parts = []
+        for p in h.get("parts") or []:
+            lp = _limpar_part(p)
+            if lp:
+                parts.append(lp)
         if not parts:
             continue
-        # Gemini não gosta de functionResponse sem functionCall anterior válido
         role = h.get("role") or "user"
         limpo.append({"role": role, "parts": parts})
-    # precisa terminar em user (mensagem atual) e não começar com functionResponse
     while limpo and limpo[0]["role"] == "user" and any("functionResponse" in p for p in limpo[0]["parts"]):
         limpo = limpo[1:]
     return limpo
@@ -73,7 +86,7 @@ class Gemini:
             "maxOutputTokens": 1024,
         }
         if com_thinking:
-            # Sem "thinking": resposta em segundos (quando o modelo aceita)
+            # Só em modelos 2.5 que aceitam; 3.5-flash-lite rejeita (400)
             cfg["thinkingConfig"] = {"thinkingBudget": 0}
         return {
             "systemInstruction": {"parts": [{"text": instrucoes}]},
@@ -89,8 +102,9 @@ class Gemini:
         i = 0
         while i < len(candidatos):
             modelo = candidatos[i]
-            # 1º tenta com thinkingBudget=0; se 400, tenta sem thinkingConfig
-            for com_thinking in (True, False):
+            # 3.5-lite rejeita thinkingConfig; 2.5 gosta de thinkingBudget=0.
+            # Ordem: sem thinking primeiro (mais compatível), depois com.
+            for com_thinking in (False, True):
                 corpo = self._montar_corpo(instrucoes, historico, ferramentas, com_thinking)
                 for tentativa in range(3):
                     try:

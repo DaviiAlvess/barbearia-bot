@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import timedelta
 
 from barbearia import agenda, db, ferramentas, guardrails, humanizar, persona
-from barbearia.ia import ErroIA
+from barbearia.ia import ErroIA, _limpar_part
 
 log = logging.getLogger(__name__)
 
@@ -181,10 +181,12 @@ class Atendente:
     def _rodar_ia(self, instrucoes: str, hist: list[dict], telefone: str) -> str:
         for _ in range(MAX_RODADAS_FERRAMENTA):
             conteudo = self.ia.gerar(instrucoes, hist, ferramentas.DECLARACOES)
-            hist.append(conteudo)
-            chamadas = [p["functionCall"] for p in conteudo["parts"] if "functionCall" in p]
+            # Guarda só campos aceitos pela API (sem thoughtSignature)
+            parts = [lp for p in conteudo.get("parts") or [] if (lp := _limpar_part(p))]
+            hist.append({"role": "model", "parts": parts})
+            chamadas = [p["functionCall"] for p in parts if "functionCall" in p]
             if not chamadas:
-                return "".join(p.get("text", "") for p in conteudo["parts"] if not p.get("thought"))
+                return "".join(p.get("text", "") for p in parts)
             respostas = []
             for c in chamadas:
                 resultado = ferramentas.executar(c["name"], c.get("args") or {}, telefone, self.enviar)
