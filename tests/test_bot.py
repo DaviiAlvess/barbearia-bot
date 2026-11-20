@@ -616,6 +616,15 @@ def test_painel_whatsapp_qr(monkeypatch):
     assert r.status_code == 200 and "Conectado" in r.text
     assert "5575999990000" in r.text  # aparelho do QR
     assert "557581829675" in r.text   # dono cadastrado
+    assert "Desconectar celular" in r.text
+    assert 'action="/whatsapp/desconectar"' in r.text or "action=/whatsapp/desconectar" in r.text
+
+    chamado = {"logout": 0, "conectar": 0}
+    monkeypatch.setattr(evo, "logout", lambda: chamado.__setitem__("logout", chamado["logout"] + 1))
+    monkeypatch.setattr(evo, "conectar", lambda: chamado.__setitem__("conectar", chamado["conectar"] + 1) or {})
+    r = c.post("/whatsapp/desconectar", follow_redirects=False)
+    assert r.status_code == 303 and "/whatsapp" in r.headers["location"]
+    assert chamado["logout"] == 1 and chamado["conectar"] == 1
 
 
 def test_evolution_extrair_mensagem():

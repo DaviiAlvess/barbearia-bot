@@ -698,7 +698,7 @@ def ver_avaliacoes():
 
 
 @app.get("/whatsapp", dependencies=[Depends(autenticar)])
-def ver_whatsapp():
+def ver_whatsapp(ok: str | None = None):
     """Só status + QR para conectar o celular. Não mostra conversas."""
     st = _status_whatsapp()
     if st.get("erro") and not st.get("conectado") and not st.get("temQr"):
@@ -719,16 +719,25 @@ def ver_whatsapp():
         <p>Aparelho do QR: <b>{num_txt}</b></p>
         <p>Dono cadastrado (#agenda / alertas): <b>{dono_txt}</b>
         — <a href="/salao">alterar em Salão</a></p>
-        <p class=vazio>Comandos # e alertas usam sempre o número cadastrado, não o do QR.
-        Se desconectar, esta página mostra o QR automaticamente.</p>
+        <p class=vazio>Comandos # e alertas usam sempre o número cadastrado, não o do QR.</p>
+        <form method=post action=/whatsapp/desconectar style="margin:14px 0 8px"
+         onsubmit="return confirm('Desconectar este celular? O bot para de receber mensagens até escanear um QR novo.')">
+          <button type=submit class=perigo>Desconectar celular</button>
+        </form>
+        <p class=vazio>Depois de desconectar, esta página mostra o QR para conectar outro aparelho.</p>
         <p><a href="/whatsapp">Atualizar</a></p></div>"""
         return pagina("WhatsApp", corpo, refresh=30)
+
+    aviso_ok = ""
+    if ok == "desconectado":
+        aviso_ok = '<p class="ok">Celular desconectado. Escaneie o QR abaixo para conectar de novo.</p>'
 
     if st.get("temQr"):
         idade = st.get("idadeQrSegundos")
         idade_txt = f"QR gerado há {idade}s." if idade is not None else ""
         ts = int(time.time())
         corpo = f"""<div class=card><h3>Escaneie o QR</h3>
+        {aviso_ok}
         <ol class=passos>
           <li>No <b>mesmo celular</b> do WhatsApp: <b>Aparelhos conectados</b> → <b>Conectar um aparelho</b></li>
           <li>Escaneie <b>este</b> QR (ele muda a cada ~20s — use o mais novo)</li>
@@ -740,7 +749,8 @@ def ver_whatsapp():
         </div>"""
         return pagina("WhatsApp", corpo, refresh=4)
 
-    corpo = """<div class=card><h3>WhatsApp</h3>
+    corpo = f"""<div class=card><h3>WhatsApp</h3>
+    {aviso_ok}
     <p class=aviso>Aguardando o QR… a Evolution ainda está gerando.</p>
     <p><a href="/whatsapp">Atualizar</a> ·
     <form method=post action=/whatsapp/reiniciar style="display:inline">
@@ -764,3 +774,13 @@ def whatsapp_reiniciar():
     with contextlib.suppress(Exception):
         evo.reiniciar_qr()
     return RedirectResponse("/whatsapp", status_code=303)
+
+
+@app.post("/whatsapp/desconectar", dependencies=[Depends(autenticar)])
+def whatsapp_desconectar():
+    """Desconecta o celular do QR (logout Evolution) e libera para escanear de novo."""
+    with contextlib.suppress(Exception):
+        evo.logout()
+    with contextlib.suppress(Exception):
+        evo.conectar()  # gera QR novo para o próximo aparelho
+    return RedirectResponse("/whatsapp?ok=desconectado", status_code=303)
