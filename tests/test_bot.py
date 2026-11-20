@@ -258,16 +258,16 @@ def test_eh_dono_aceita_com_ou_sem_55(monkeypatch):
     assert not _eh_dono("5575888880000")
 
 
-def test_telefone_dono_prioriza_whatsapp_conectado(monkeypatch):
-    """Dono = número que escaneou o QR; .env só como fallback."""
+def test_telefone_dono_sempre_o_cadastrado(monkeypatch):
+    """Dono = número cadastrado (painel/.env); QR conectado não manda."""
     from barbearia import atendente as at
     from barbearia import evolution as evo
 
-    monkeypatch.setenv("TELEFONE_DONO", "5575900000000")
-    monkeypatch.setattr(evo, "numero_conectado", lambda: "557581829675")
+    monkeypatch.setenv("TELEFONE_DONO", "557581829675")
+    monkeypatch.setattr(evo, "numero_conectado", lambda: "5575999990000")
     assert at.telefone_dono() == "557581829675"
-    monkeypatch.setattr(evo, "numero_conectado", lambda: None)
-    assert at.telefone_dono() == "5575900000000"
+    db.salvar_telefone_dono("5575888880000")
+    assert at.telefone_dono() == "5575888880000"
 
 
 def test_sem_bot_casa_mesmo_com_digito_a_mais():
@@ -516,11 +516,17 @@ def test_painel(monkeypatch):
     assert 'aria-label="Outros dias"' in r.text  # faixa para trocar de dia
     assert f'href="/?data={SABADO}"' in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
-    # nome + endereço do salão pelo painel
+    # nome + endereço + WhatsApp do dono pelo painel
     assert c.get("/salao").status_code == 200 and "Nome do salão" in c.get("/salao").text
-    r = c.post("/salao", data={"nome": "Navalha & Cia", "endereco": "Rua A, 1"}, follow_redirects=False)
+    assert "WhatsApp do dono" in c.get("/salao").text
+    r = c.post(
+        "/salao",
+        data={"nome": "Navalha & Cia", "endereco": "Rua A, 1", "telefone_dono": "557581829675"},
+        follow_redirects=False,
+    )
     assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
     assert db.endereco() == "Rua A, 1"
+    assert db.telefone_dono_cadastrado() == "557581829675"
     assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
     # profissionais: listar, adicionar, remover
     assert c.get("/profissionais").status_code == 200 and "Adicionar profissional" in c.get("/profissionais").text
@@ -597,14 +603,16 @@ def test_painel_whatsapp_qr(monkeypatch):
     png = c.get("/whatsapp/qr.png")
     assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
 
+    monkeypatch.setenv("TELEFONE_DONO", "557581829675")
     monkeypatch.setattr(
         evo, "status_para_painel",
-        lambda: {"conectado": True, "temQr": False, "numero": "557581829675"},
+        lambda: {"conectado": True, "temQr": False, "numero": "5575999990000"},
     )
-    monkeypatch.setattr(evo, "numero_conectado", lambda: "557581829675")
+    monkeypatch.setattr(evo, "numero_conectado", lambda: "5575999990000")
     r = c.get("/whatsapp")
     assert r.status_code == 200 and "Conectado" in r.text
-    assert "557581829675" in r.text
+    assert "5575999990000" in r.text  # aparelho do QR
+    assert "557581829675" in r.text   # dono cadastrado
 
 
 def test_evolution_extrair_mensagem():

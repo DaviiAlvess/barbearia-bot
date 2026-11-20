@@ -263,6 +263,24 @@ def normalizar_telefone(telefone: str) -> str:
     return "".join(c for c in (telefone or "") if c.isdigit())
 
 
+def telefone_dono_cadastrado() -> str:
+    """WhatsApp do dono: painel (cadastrado) tem prioridade; senão TELEFONE_DONO do .env."""
+    import os
+    salvo = obter_config("telefone_dono")
+    if salvo and normalizar_telefone(salvo):
+        return normalizar_telefone(salvo)
+    return normalizar_telefone(os.getenv("TELEFONE_DONO") or "") or (os.getenv("TELEFONE_DONO") or "").strip()
+
+
+def salvar_telefone_dono(telefone: str) -> str:
+    """Grava o número do dono no cadastro do salão. Devolve normalizado."""
+    tel = normalizar_telefone(telefone)
+    if not tel or len(tel) < 10:
+        raise ValueError("Informe o WhatsApp do dono com DDD (só números, com 55).")
+    salvar_config("telefone_dono", tel)
+    return tel
+
+
 def listar_sem_bot() -> list[dict[str, str]]:
     """Números em que o bot NÃO conversa (amigos, família, particular)."""
     raw = obter_config("sem_bot", "[]") or "[]"

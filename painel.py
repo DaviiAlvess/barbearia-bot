@@ -375,14 +375,16 @@ def desbloquear(data: str = Form(...), barbeiro: str = Form("")):
 def ver_salao(ok: str | None = None, erro: str | None = None):
     nome = db.nome_salao()
     end = db.endereco()
+    tel_dono = db.telefone_dono_cadastrado()
     msg = ""
     if ok:
-        msg = '<p class="ok">Dados do salão salvos. O WhatsApp já usa nome e endereço.</p>'
+        msg = '<p class="ok">Dados do salão salvos. O WhatsApp já usa nome, endereço e número do dono.</p>'
     if erro:
         msg = f'<p class="erro">{e(erro)}</p>'
     corpo = f"""<div class=card>
     <h2>Seu salão</h2>
-    <p class=vazio>Nome e endereço aparecem no painel, nas conversas e nos lembretes do WhatsApp
+    <p class=vazio>Nome e endereço aparecem no painel, nas conversas e nos lembretes.
+    O <b>WhatsApp do dono</b> cadastrado aqui recebe #agenda, alertas e comandos
     (o app continua sendo {e(config.NOME_APP)}).</p>
     {msg}
     <form method=post action=/salao>
@@ -392,6 +394,10 @@ def ver_salao(ok: str | None = None, erro: str | None = None):
       <label for=endereco>Endereço</label>
       <input id=endereco name=endereco maxlength=200 required value="{e(end)}"
        placeholder="Ex.: Rua Exemplo, 123 - Centro">
+      <label for=telefone_dono>WhatsApp do dono (cadastrado)</label>
+      <input id=telefone_dono name=telefone_dono maxlength=20 required
+       value="{e(tel_dono)}" inputmode=numeric pattern="[0-9]+"
+       placeholder="Ex.: 557581829675 (55 + DDD + número)">
       <button type=submit>Salvar</button>
     </form>
     </div>"""
@@ -399,13 +405,18 @@ def ver_salao(ok: str | None = None, erro: str | None = None):
 
 
 @app.post("/salao", dependencies=[Depends(autenticar)])
-def salvar_salao(nome: str = Form(...), endereco: str = Form(...)):
+def salvar_salao(
+    nome: str = Form(...),
+    endereco: str = Form(...),
+    telefone_dono: str = Form(...),
+):
     nome = (nome or "").strip()[:80]
     if not nome:
         return RedirectResponse("/salao?erro=" + quote("Informe o nome do salão."), status_code=303)
     try:
         db.salvar_config("nome_salao", nome)
         db.salvar_endereco(endereco)
+        db.salvar_telefone_dono(telefone_dono)
     except ValueError as exc:
         return RedirectResponse("/salao?erro=" + quote(str(exc)), status_code=303)
     return RedirectResponse("/salao?ok=1", status_code=303)
@@ -701,10 +712,14 @@ def ver_whatsapp():
     if st.get("conectado"):
         num = st.get("numero") or evo.numero_conectado() or ""
         num_txt = e(num) if num else "(ainda não li o número)"
+        dono = db.telefone_dono_cadastrado()
+        dono_txt = e(dono) if dono else "(cadastre em Salão)"
         corpo = f"""<div class=card><h3>WhatsApp</h3>
         <p class=ok>Conectado. Não precisa escanear QR.</p>
-        <p>Número do aparelho (dono / comandos <code>#agenda</code>): <b>{num_txt}</b></p>
-        <p class=vazio>Esse é o WhatsApp que escaneou o QR. Comandos # e alertas vão para ele.
+        <p>Aparelho do QR: <b>{num_txt}</b></p>
+        <p>Dono cadastrado (#agenda / alertas): <b>{dono_txt}</b>
+        — <a href="/salao">alterar em Salão</a></p>
+        <p class=vazio>Comandos # e alertas usam sempre o número cadastrado, não o do QR.
         Se desconectar, esta página mostra o QR automaticamente.</p>
         <p><a href="/whatsapp">Atualizar</a></p></div>"""
         return pagina("WhatsApp", corpo, refresh=30)

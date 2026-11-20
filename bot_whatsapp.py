@@ -10,7 +10,6 @@ Rodar:
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from collections import OrderedDict
@@ -146,9 +145,9 @@ def tratar_mensagem(payload: dict) -> None:
                 return
             destino = telefone_dono() or numero
             if not destino:
-                log.warning("Comando fromMe ignorado: número conectado / TELEFONE_DONO vazio")
+                log.warning("Comando fromMe ignorado: TELEFONE_DONO cadastrado vazio")
                 return
-            log.info("Comando do aparelho (#) → dono %s: %s", destino, texto[:80])
+            log.info("Comando do aparelho (#) → dono cadastrado %s: %s", destino, texto[:80])
             _pool.submit(processar, destino, texto)
             return
 
@@ -159,7 +158,7 @@ def tratar_mensagem(payload: dict) -> None:
         log.info("Mensagem de %s: %s", numero, texto[:80])
         if texto.startswith("#") and not _eh_dono(numero):
             log.warning(
-                "Comando # de %s ignorado (dono/conectado=%s)",
+                "Comando # de %s ignorado (dono cadastrado=%s)",
                 numero, telefone_dono() or "(vazio)",
             )
         _pool.submit(processar, numero, texto)
@@ -176,13 +175,20 @@ async def lifespan(_app: FastAPI):
         log.info("Estado da conexão: %s", st)
         if st != "open":
             evo.conectar()
+        dono = telefone_dono()
         conectado = evo.numero_conectado()
-        if conectado:
-            os.environ["TELEFONE_DONO"] = conectado
-            log.info("Dono = WhatsApp conectado (%s…)", conectado[:6])
+        if dono:
+            log.info("Dono = número cadastrado (%s…)", dono[:6])
         else:
-            dono = telefone_dono()
-            log.warning("Sem ownerJid ainda; usando TELEFONE_DONO=%s", dono[:6] if dono else "(vazio)")
+            log.warning("TELEFONE_DONO / cadastro do dono vazio — #agenda e alertas não vão chegar")
+        if conectado and dono and not (
+            conectado == dono or conectado.endswith(dono[-8:]) or dono.endswith(conectado[-8:])
+        ):
+            log.warning(
+                "WhatsApp conectado (%s…) ≠ dono cadastrado (%s…). "
+                "Comandos # e alertas usam o cadastrado.",
+                conectado[:6], dono[:6],
+            )
     except Exception:  # noqa: BLE001
         log.exception("Falha ao preparar instância Evolution (vou seguir; webhook pode criar depois)")
     threading.Thread(target=loop_programadas, daemon=True).start()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import random
 import threading
 import time
@@ -76,19 +75,12 @@ _NEGACOES = {
 
 
 def telefone_dono() -> str:
-    """Número do dono = WhatsApp conectado (QR), senão TELEFONE_DONO do .env."""
-    try:
-        from barbearia import evolution as evo
-        conectado = evo.numero_conectado()
-        if conectado:
-            return db.normalizar_telefone(conectado) or conectado
-    except Exception:  # noqa: BLE001 — Evolution pode estar offline nos testes
-        pass
-    return (os.getenv("TELEFONE_DONO") or "").strip()
+    """Número do dono = sempre o cadastrado (painel / TELEFONE_DONO), nunca o QR."""
+    return db.telefone_dono_cadastrado()
 
 
 def _eh_dono(telefone: str) -> bool:
-    """Compara com o número conectado / TELEFONE_DONO (com ou sem 55)."""
+    """Compara com o número cadastrado do dono (com ou sem 55)."""
     dono = telefone_dono()
     if not dono:
         return False
