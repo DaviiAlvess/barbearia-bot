@@ -204,9 +204,12 @@ def test_primeiro_contato_pede_e_salva_nome():
     """Cliente novo: persona manda perguntar o nome; ao dizer, lembrar_cliente grava e passa a chamar."""
     txt = persona.montar(None, None, True)
     assert "pergunte o nome" in txt.lower() or "Qual é o seu nome" in txt
+    assert "tabela de preços" in txt.lower() or "serviços e a tabela" in txt.lower()
+    assert "marcação" in txt.lower() or "marcar" in txt.lower()
     ia = FakeIA([
         ("lembrar_cliente", {"nome": "Marcos"}),
-        "Beleza, Marcos! Em que posso te ajudar — marcar horário ou ver os serviços?",
+        "Beleza, Marcos! Quer que eu te mande os serviços e a tabela de preços, "
+        "ou você já conhece e prefere seguir com a marcação?",
     ])
     bot = Atendente(ia)
     r = bot.responder(TEL, "meu nome é Marcos")
