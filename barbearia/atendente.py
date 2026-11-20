@@ -63,6 +63,30 @@ _PALAVRAS_ATENDIMENTO = (
     "preço", "preco", "serviço", "servico", "barbeiro", "quando", "às", "as ",
 )
 
+_CONFIRMACOES = {
+    "sim", "s", "ss", "ssim", "siim", "yes", "pode", "pode sim", "pode ser",
+    "fechou", "fecha", "fechado", "blz", "beleza", "show", "ok", "okay", "certo",
+    "isso", "isso aí", "isso ai", "uhum", "ahm", "confirma", "confirmo", "manda",
+    "marca", "pode marcar", "quero sim",
+}
+_NEGACOES = {
+    "nao", "não", "n", "nn", "no", "nop", "negativo", "deixa", "deixa quieto",
+    "depois", "agora nao", "agora não", "cancela", "melhor nao", "melhor não",
+}
+
+
+def _dica_resposta_curta(texto: str) -> str | None:
+    """Ajuda a IA a interpretar 'sim'/'não' curtos no WhatsApp."""
+    t = (texto or "").strip().lower()
+    t = t.replace("!", "").replace(".", "").replace(",", "").strip()
+    if t in _CONFIRMACOES:
+        return ("[Dica: o cliente confirmou com uma resposta curta. "
+                "Trate como SIM à sua última pergunta e avance (agendar/cancelar/etc.).]")
+    if t in _NEGACOES:
+        return ("[Dica: o cliente recusou/adiou com resposta curta. "
+                "Respeite, não insista; ofereça ajuda depois se fizer sentido.]")
+    return None
+
 
 def _textos_do_historico(hist: list[dict]) -> list[str]:
     textos = []
@@ -144,6 +168,10 @@ class Atendente:
                 texto_ia = (f"[Contexto: antes desta mensagem, você mandou para o cliente: "
                             f"\"{' | '.join(avisos)}\". Ele está respondendo a isso.]\n{texto}")
                 conversa_nova = False  # ele está respondendo a nós; não cumprimenta do zero
+            dica = _dica_resposta_curta(texto)
+            if dica:
+                texto_ia = f"{dica}\n{texto_ia}"
+                conversa_nova = False
 
             pendentes = agenda.agendamentos_futuros(telefone)
             instrucoes = persona.montar(

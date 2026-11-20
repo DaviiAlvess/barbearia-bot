@@ -31,73 +31,15 @@ def _periodo(h):
     return "bom dia" if h < 12 else "boa tarde" if h < 18 else "boa noite"
 
 
-def _exemplos(periodo: str, salao: str, atendente: str) -> str:
-    """Treino de tom e respostas para situações comuns (few-shot)."""
-    return f"""
-EXEMPLOS DE CONVERSA (treine o tom — NÃO copie igual; use as ferramentas de verdade):
-
-1) Primeiro contato
-Cliente: oi
-Você: Oi, {periodo}! Tudo bem? Aqui é o {atendente} da {salao}. Qual é o seu nome?
-
-Cliente: Marcos
-Você: [lembrar_cliente nome=Marcos]
-Beleza, Marcos! Quer marcar um horário, ver preços ou tirar uma dúvida?
-
-2) Quer preço
-Cliente: quanto tá o corte?
-Você: [ver_tabela_servicos]
-Corte tá R$ 35,00 (~30 min). Quer que eu veja um horário pra você?
-
-3) Quer marcar direto
-Cliente: tem vaga sábado de tarde?
-Você: [lembrar se não souber o nome] [resolver_data quando=sábado] [ver_horarios_livres]
-Sábado (21/11) de tarde tenho 14:00, 14:30 e 15:30. Qual horário e qual serviço — corte, barba ou os dois?
-
-4) Confirma e agenda
-Cliente: 14h, corte e barba. Pode marcar. Sou o Pedro
-Você: [lembrar_cliente] [resolver_data] [ver_horarios_livres] confirme: "Pedro, Corte + Barba sábado 21/11 às 14:00, fechou?"
-Cliente: sim
-Você: [agendar] Prontinho! Sábado 21/11 às 14:00, Corte + Barba. Te espero 💈
-Endereço: (use o endereço real da barbearia).
-
-5) Serviço que NÃO existe
-Cliente: vocês fazem progressiva?
-Você: [ver_tabela_servicos]
-Progressiva a gente não faz. O que temos é: (liste só a tabela). Quer marcar algum desses?
-
-6) Remarcar / cancelar
-Cliente: preciso remarcar
-Você: [meus_agendamentos]
-Vi seu horário: sábado 21/11 às 14:00 com o Rafael. Quer outro dia/hora ou prefere cancelar?
-
-7) Cliente grosso
-Cliente: caralho demora demais
-Você: Desculpa pela demora. Me diz o que você precisa que eu resolvo agora — marcar, remarcar ou falar com a equipe?
-
-8) Só olhando / depois
-Cliente: só tava vendo, depois eu marco
-Você: Tranquilo! Qualquer coisa é só chamar. Fica à vontade.
-
-9) Endereço / funcionamento
-Cliente: onde fica? abre domingo?
-Você: Fica em (endereço). Domingo a gente não abre. Quer que eu veja um horário num dia aberto?
-
-10) Avaliação
-Cliente: 5, atendimento top
-Você: [registrar_avaliacao nota=5 comentario=atendimento top]
-Valeu demais pelo 5! Qualquer coisa estamos aqui.
-"""
-
-
 def montar(cliente=None, ultimo=None, conversa_nova=True, pendentes=None):
     agora = agenda.agora()
-    from barbearia import guardrails
+    from barbearia import guardrails, treino_conversa
     servicos = guardrails.lista_servicos_fechada()
     equipe = db.tabela_barbeiros_texto()
     nomes_serv = ", ".join(db.listar_servicos().keys()) or "(nenhum)"
     salao = db.nome_salao()
     periodo = _periodo(agora.hour)
+    endereco = db.endereco()
 
     if cliente and cliente.get("nome"):
         sobre = f"Cliente conhecido: {cliente['nome']}."
@@ -108,6 +50,7 @@ def montar(cliente=None, ultimo=None, conversa_nova=True, pendentes=None):
         if ultimo:
             sobre += f" Último atendimento: {ultimo['servico']} com {ultimo['barbeiro']} em {ultimo['inicio'][:10]}."
         sobre += " Trate pelo nome, como quem já conhece, sem exagero."
+        sobre += treino_conversa.dicas_cliente_conhecido(cliente.get("nome"))
     else:
         sobre = ("Cliente novo (ainda não sabemos o nome). No primeiro contato, pergunte o nome "
                  "cedo e, assim que ele disser, guarde com lembrar_cliente. Depois trate pelo nome.")
@@ -186,7 +129,7 @@ BOAS MANEIRAS:
 - Errou → desculpa simples e resolve. Grosso → calma; se piorar → atendente humano.
 - Só pede o nome (nunca CPF/e-mail). Despedida curta. Fora do expediente: responde, sem prometer equipe na hora.
 
-{_exemplos(periodo, salao, config.NOME_ATENDENTE)}
+{treino_conversa.bloco_exemplos(periodo, salao, config.NOME_ATENDENTE, endereco)}
 
 AGORA: {agenda.DIAS_SEMANA[agora.weekday()]}, {agora.strftime('%d/%m/%Y %H:%M')} (America/Bahia).
 Calendário oficial (única fonte de dia da semana; use resolver_data para converter o que o cliente falou):

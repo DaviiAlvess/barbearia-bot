@@ -243,7 +243,16 @@ def test_guardrails_bloqueia_sistema_e_servico_fantasma():
     txt = persona.montar(None, None, True)
     assert "PROIBIDO" in txt and "FLUXO DE AGENDAMENTO" in txt
     assert "EXEMPLOS DE CONVERSA" in txt and "ROTEIRO POR INTENÇÃO" in txt
+    assert "FRASES RUINS" in txt and "Respostas curtas de confirmação" in txt
     assert "Inventar serviço" in txt or "invente serviço" in txt.lower() or "NÃO invente" in txt
+
+
+def test_dica_sim_nao_curto():
+    from barbearia.atendente import _dica_resposta_curta
+    assert "confirmou" in _dica_resposta_curta("sim").lower()
+    assert "confirmou" in _dica_resposta_curta("blz").lower()
+    assert "recusou" in _dica_resposta_curta("não").lower()
+    assert _dica_resposta_curta("quero marcar sábado") is None
 
 
 def test_baloes():
