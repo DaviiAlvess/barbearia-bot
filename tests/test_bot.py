@@ -309,6 +309,10 @@ def test_endereco_e_profissionais_banco():
     assert agenda.achar_barbeiro("joao") == "João"
     assert 0 in db.listar_barbeiros()["João"]["folgas"]
     assert "João" in db.tabela_barbeiros_texto()
+    db.adicionar_barbeiro("Pedro", "platinado")
+    assert "Pedro" in db.listar_barbeiros()
+    assert db.remover_barbeiro("Maria") is True
+    assert "Maria" not in db.listar_barbeiros()
 
 
 def test_nome_salao_painel_e_banco():
@@ -342,20 +346,29 @@ def test_painel(monkeypatch):
     assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
     assert db.endereco() == "Rua A, 1"
     assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
-    # profissionais
-    assert c.get("/profissionais").status_code == 200 and "Profissionais" in c.get("/profissionais").text
+    # profissionais: listar, adicionar, remover
+    assert c.get("/profissionais").status_code == 200 and "Adicionar profissional" in c.get("/profissionais").text
+    assert "Remover" in c.get("/profissionais").text
+    r = c.post("/profissionais/adicionar", data={"nome": "Ana", "especialidade": "sobrancelha"},
+               follow_redirects=False)
+    assert r.status_code == 303 and "ok=add" in r.headers["location"]
+    assert "Ana" in db.listar_barbeiros()
+    r = c.post("/profissionais/remover", data={"nome": "Thiago"}, follow_redirects=False)
+    assert r.status_code == 303 and "ok=rm" in r.headers["location"]
+    assert "Thiago" not in db.listar_barbeiros()
+    # salvar alterações (folgas)
+    nomes = list(db.listar_barbeiros())
     r = c.post(
         "/profissionais",
         data={
-            "nome": ["Rafael", "Diego", ""],
-            "especialidade": ["degradê", "barba", ""],
-            "folga_1": ["2"],
+            "nome": nomes,
+            "especialidade": [db.listar_barbeiros()[n].get("especialidade", "") for n in nomes],
+            "folga_0": ["1"],
         },
         follow_redirects=False,
     )
     assert r.status_code == 303 and "ok=1" in r.headers["location"]
-    assert set(db.listar_barbeiros()) == {"Rafael", "Diego"}
-    assert db.listar_barbeiros()["Diego"]["folgas"] == [2]
+    assert 1 in db.listar_barbeiros()[nomes[0]]["folgas"]
     # tabela de serviços no painel
     assert c.get("/servicos").status_code == 200 and "Serviços e preços" in c.get("/servicos").text
     r = c.post(

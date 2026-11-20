@@ -377,40 +377,65 @@ DIAS_FOLGA = [
 
 @app.get("/profissionais", dependencies=[Depends(autenticar)])
 def ver_profissionais(ok: str | None = None, erro: str | None = None):
-    equipe = list(db.listar_barbeiros().items()) + [("", {"especialidade": "", "folgas": []})] * 2
+    equipe = list(db.listar_barbeiros().items())
     msg = ""
-    if ok:
-        msg = '<p class="ok">Equipe salva. O atendente do WhatsApp já usa esses profissionais.</p>'
+    if ok == "1":
+        msg = '<p class="ok">Equipe salva. O WhatsApp já usa esses profissionais.</p>'
+    elif ok == "add":
+        msg = '<p class="ok">Profissional adicionado.</p>'
+    elif ok == "rm":
+        msg = '<p class="ok">Profissional removido.</p>'
     if erro:
         msg = f'<p class="erro">{e(erro)}</p>'
+
+    forms_rm = ""
     linhas = ""
     for i, (n, info) in enumerate(equipe):
+        fid = f"rm-{i}"
         folgas = set(info.get("folgas") or [])
         checks = "".join(
             f'<label style="display:inline;margin-right:8px;text-transform:none;letter-spacing:0">'
-            f'<input type=checkbox name="folga_{i}" value="{d}"'
+            f'<input type=checkbox name="folga_{i}" value="{d}" form="equipe"'
             f'{" checked" if d in folgas else ""}> {rot}</label>'
             for d, rot in DIAS_FOLGA
         )
-        req = " required" if n else ""
-        linhas += (
-            f'<tr><td><input name="nome" value="{e(n)}" maxlength=60{req} '
-            f'placeholder="Novo profissional"></td>'
-            f'<td><input name="especialidade" value="{e(info.get("especialidade") or "")}" '
-            f'maxlength=80 placeholder="Ex.: degradê"></td>'
-            f'<td>{checks}</td></tr>'
+        forms_rm += (
+            f'<form id="{fid}" method=post action=/profissionais/remover style="display:none">'
+            f'<input type=hidden name=nome value="{e(n)}"></form>'
         )
+        linhas += (
+            f'<tr><td><input name="nome" form="equipe" value="{e(n)}" required maxlength=60></td>'
+            f'<td><input name="especialidade" form="equipe" value="{e(info.get("especialidade") or "")}" '
+            f'maxlength=80 placeholder="Ex.: degradê"></td>'
+            f'<td>{checks}</td>'
+            f'<td><button class=perigo type=submit form="{fid}" '
+            f"onclick=\"return confirm('Remover {e(n)} da equipe?')\">Remover</button></td></tr>"
+        )
+
+    if equipe:
+        tabela = (
+            f'{forms_rm}<form id="equipe" method=post action=/profissionais></form>'
+            f'<table><tr><th>Nome</th><th>Especialidade</th><th>Folgas</th><th></th></tr>'
+            f'{linhas}</table>'
+            f'<p style="margin-top:14px"><button type=submit form="equipe">Salvar alterações</button></p>'
+        )
+    else:
+        tabela = '<p class=aviso>Nenhum profissional cadastrado. Adicione o primeiro abaixo.</p>'
+
     corpo = f"""<div class=card>
     <h2>Profissionais</h2>
-    <p class=vazio>Quem atende no salão. O bot usa esta lista para marcar horários e sugerir barbeiro.
-    Deixe o nome em branco para remover. Folgas semanais: dias em que a pessoa não trabalha.</p>
+    <p class=vazio>Adicione ou remova quem atende. O bot usa esta lista no WhatsApp.
+    Folgas: dias da semana em que a pessoa não trabalha.</p>
     {msg}
-    <form method=post action=/profissionais>
-    <table>
-      <tr><th>Nome</th><th>Especialidade</th><th>Folgas na semana</th></tr>
-      {linhas}
-    </table>
-    <button type=submit>Salvar equipe</button>
+    {tabela}
+    </div>
+    <div class=card>
+    <h3>Adicionar profissional</h3>
+    <form method=post action=/profissionais/adicionar class=form-row>
+      <div><label>Nome</label><input name=nome maxlength=60 required placeholder="Ex.: Rafael"></div>
+      <div><label>Especialidade</label><input name=especialidade maxlength=80
+       placeholder="Ex.: degradê e navalhado"></div>
+      <button type=submit>Adicionar</button>
     </form>
     </div>"""
     return pagina("Profissionais", corpo)
@@ -438,6 +463,28 @@ async def salvar_profissionais_painel(request: Request):
     except ValueError as exc:
         return RedirectResponse("/profissionais?erro=" + quote(str(exc)), status_code=303)
     return RedirectResponse("/profissionais?ok=1", status_code=303)
+
+
+@app.post("/profissionais/adicionar", dependencies=[Depends(autenticar)])
+def adicionar_profissional(nome: str = Form(...), especialidade: str = Form("")):
+    try:
+        db.adicionar_barbeiro(nome, especialidade)
+    except ValueError as exc:
+        return RedirectResponse("/profissionais?erro=" + quote(str(exc)), status_code=303)
+    return RedirectResponse("/profissionais?ok=add", status_code=303)
+
+
+@app.post("/profissionais/remover", dependencies=[Depends(autenticar)])
+def remover_profissional(nome: str = Form(...)):
+    try:
+        if not db.remover_barbeiro(nome):
+            return RedirectResponse(
+                "/profissionais?erro=" + quote("Profissional não encontrado."),
+                status_code=303,
+            )
+    except ValueError as exc:
+        return RedirectResponse("/profissionais?erro=" + quote(str(exc)), status_code=303)
+    return RedirectResponse("/profissionais?ok=rm", status_code=303)
 
 
 @app.get("/servicos", dependencies=[Depends(autenticar)])

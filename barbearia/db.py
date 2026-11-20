@@ -405,6 +405,37 @@ def salvar_barbeiros(barbeiros: dict[str, dict] | list[dict]) -> None:
     salvar_config("barbeiros", json.dumps(normalizado, ensure_ascii=False))
 
 
+def remover_barbeiro(nome: str) -> bool:
+    """Remove um profissional. True se existia."""
+    nome = (nome or "").strip()
+    equipe = listar_barbeiros()
+    if nome not in equipe:
+        # tenta match case-insensitive
+        chave = next((k for k in equipe if k.lower() == nome.lower()), None)
+        if not chave:
+            return False
+        nome = chave
+    del equipe[nome]
+    if not equipe:
+        raise ValueError("Não dá para remover o último profissional.")
+    salvar_barbeiros(equipe)
+    return True
+
+
+def adicionar_barbeiro(nome: str, especialidade: str = "", folgas: list[int] | None = None) -> None:
+    nome = (nome or "").strip()[:60]
+    if not nome:
+        raise ValueError("Informe o nome do profissional.")
+    equipe = listar_barbeiros()
+    if any(k.lower() == nome.lower() for k in equipe):
+        raise ValueError(f"Já existe alguém chamado {nome}.")
+    equipe[nome] = {
+        "especialidade": (especialidade or "").strip()[:80],
+        "folgas": list(folgas or []),
+    }
+    salvar_barbeiros(equipe)
+
+
 def tabela_barbeiros_texto() -> str:
     from barbearia import agenda
     linhas = []
