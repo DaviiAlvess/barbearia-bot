@@ -24,13 +24,19 @@ def _normalizar(txt):
     return "".join(c for c in txt if not unicodedata.combining(c))
 
 
+def servicos():
+    """Tabela atual (painel ou config.py): {nome: (preco, minutos)}."""
+    return db.listar_servicos()
+
+
 def achar_servico(nome):
+    tabela = servicos()
     alvo = _normalizar(nome)
-    for s in config.SERVICOS:
+    for s in tabela:
         if _normalizar(s) == alvo:
             return s
     alvo = alvo.replace("+", "e")
-    nomes = {s: _normalizar(s).replace("+", "e").split(" (")[0] for s in config.SERVICOS}
+    nomes = {s: _normalizar(s).replace("+", "e").split(" (")[0] for s in tabela}
     for s, ns in nomes.items():  # "platinado" -> "Luzes / Platinado"
         if alvo in ns:
             return s
@@ -38,7 +44,7 @@ def achar_servico(nome):
     for s, ns in sorted(nomes.items(), key=lambda x: -len(x[1])):
         if ns in alvo:
             return s
-    raise ErroAgenda(f"Serviço '{nome}' não existe. Serviços: {', '.join(config.SERVICOS)}")
+    raise ErroAgenda(f"Serviço '{nome}' não existe. Serviços: {', '.join(tabela)}")
 
 
 def achar_barbeiro(nome):
@@ -130,7 +136,8 @@ def horarios_livres(data_txt, servico, barbeiro=None):
         return {"data": d.isoformat(), "dia_semana": DIAS_SEMANA[d.weekday()], "fechado": True,
                 "mensagem": f"A barbearia não abre nesse dia{f' ({motivo})' if motivo else ''}."}
 
-    duracao = timedelta(minutes=config.SERVICOS[servico][1])
+    preco, mins = servicos()[servico]
+    duracao = timedelta(minutes=mins)
     passo = timedelta(minutes=config.INTERVALO_AGENDA)
     equipe = [barbeiro] if barbeiro else barbeiros_do_dia(d)
     if barbeiro and barbeiro not in barbeiros_do_dia(d):
@@ -150,7 +157,7 @@ def horarios_livres(data_txt, servico, barbeiro=None):
                 t += passo
             resultado[b] = livres
     return {"data": d.isoformat(), "dia_semana": DIAS_SEMANA[d.weekday()],
-            "servico": servico, "duracao_min": config.SERVICOS[servico][1],
+            "servico": servico, "preco": preco, "duracao_min": mins,
             "livres_por_barbeiro": resultado}
 
 
@@ -164,7 +171,7 @@ def agendar(telefone, nome_cliente, data_txt, hora, servico, barbeiro=None):
         raise ErroAgenda("Hora inválida, use HH:MM.") from None
     if not expediente(d):
         raise ErroAgenda("A barbearia não abre nesse dia.")
-    preco, minutos = config.SERVICOS[servico]
+    preco, minutos = servicos()[servico]
     fim = inicio + timedelta(minutes=minutos)
     candidatos = [barbeiro] if barbeiro else barbeiros_do_dia(d)
 

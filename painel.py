@@ -177,7 +177,8 @@ def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool 
     if logado:
         nav = """<nav class="nav" aria-label="Principal">
 <a href="/">Agenda</a><a href="/bloqueios">Folgas</a>
-<a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp</a>
+<a href="/avaliacoes">Avaliações</a><a href="/servicos">Serviços</a>
+<a href="/whatsapp">WhatsApp</a>
 <a href="/salao">Salão</a>
 <a class="sair" href="/sair">Sair</a></nav>"""
     salao = db.nome_salao()
@@ -353,6 +354,76 @@ def salvar_salao(nome: str = Form(...)):
         return RedirectResponse("/salao", status_code=303)
     db.salvar_config("nome_salao", nome)
     return RedirectResponse("/salao?ok=1", status_code=303)
+
+
+@app.get("/servicos", dependencies=[Depends(autenticar)])
+def ver_servicos(ok: str | None = None, erro: str | None = None):
+    """Tabela de serviços e preços — o bot WhatsApp usa estes valores."""
+    tabela = db.listar_servicos()
+    msg = ""
+    if ok:
+        msg = '<p class="ok">Tabela de serviços salva. O atendente do WhatsApp já usa esses valores.</p>'
+    if erro:
+        msg = f'<p class="erro">{e(erro)}</p>'
+    linhas = "".join(
+        f'<tr><td><input name="nome" value="{e(n)}" required maxlength=80></td>'
+        f'<td><input name="preco" type="number" step="0.01" min="0" value="{p:.2f}" required></td>'
+        f'<td><input name="minutos" type="number" step="5" min="5" value="{m}" required></td></tr>'
+        for n, (p, m) in tabela.items()
+    )
+    # 2 linhas vazias para novos serviços
+    for _ in range(2):
+        linhas += (
+            '<tr><td><input name="nome" maxlength=80 placeholder="Novo serviço"></td>'
+            '<td><input name="preco" type="number" step="0.01" min="0" placeholder="0,00"></td>'
+            '<td><input name="minutos" type="number" step="5" min="5" placeholder="30"></td></tr>'
+        )
+    corpo = f"""<div class=card>
+    <h2>Serviços e preços</h2>
+    <p class=vazio>O Léo no WhatsApp consulta esta tabela quando o cliente pergunta valores
+    ou marca um horário. Deixe o nome em branco numa linha para removê-la.</p>
+    {msg}
+    <form method=post action=/servicos>
+    <table>
+      <tr><th>Serviço</th><th>Preço (R$)</th><th>Duração (min)</th></tr>
+      {linhas}
+    </table>
+    <button type=submit>Salvar tabela</button>
+    </form>
+    </div>"""
+    return pagina("Serviços", corpo)
+
+
+@app.post("/servicos", dependencies=[Depends(autenticar)])
+async def salvar_servicos_painel(request: Request):
+    form = await request.form()
+    nomes = form.getlist("nome")
+    precos = form.getlist("preco")
+    minutos = form.getlist("minutos")
+    itens: list[dict] = []
+    for nome, preco, mins in zip(nomes, precos, minutos, strict=False):
+        nome = (nome or "").strip()
+        if not nome:
+            continue
+        try:
+            itens.append({
+                "nome": nome[:80],
+                "preco": float(str(preco).replace(",", ".")),
+                "minutos": int(float(str(mins))),
+            })
+        except (TypeError, ValueError):
+            return RedirectResponse(
+                "/servicos?erro=" + quote("Preço ou duração inválidos."),
+                status_code=303,
+            )
+    try:
+        db.salvar_servicos(itens)
+    except ValueError as exc:
+        return RedirectResponse(
+            "/servicos?erro=" + quote(str(exc)),
+            status_code=303,
+        )
+    return RedirectResponse("/servicos?ok=1", status_code=303)
 
 
 @app.get("/avaliacoes", dependencies=[Depends(autenticar)])

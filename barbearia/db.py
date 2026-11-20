@@ -230,3 +230,82 @@ def nome_salao() -> str:
     if salvo and salvo.strip():
         return salvo.strip()[:80]
     return (config.NOME_BARBEARIA or "Meu Salão").strip()
+
+
+def _servicos_padrao() -> dict[str, tuple[float, int]]:
+    import config
+    return {str(n): (float(p), int(m)) for n, (p, m) in config.SERVICOS.items()}
+
+
+def listar_servicos() -> dict[str, tuple[float, int]]:
+    """Tabela de serviços: painel (banco) tem prioridade; senão config.py.
+
+    Retorno: {nome: (preco, minutos)}.
+    """
+    bruto = obter_config("servicos")
+    if not bruto:
+        return _servicos_padrao()
+    try:
+        dados = json.loads(bruto)
+    except json.JSONDecodeError:
+        return _servicos_padrao()
+    out: dict[str, tuple[float, int]] = {}
+    if isinstance(dados, dict):
+        itens = dados.items()
+    elif isinstance(dados, list):
+        itens = ((i.get("nome"), i) for i in dados if isinstance(i, dict))
+    else:
+        return _servicos_padrao()
+    for nome, val in itens:
+        if not nome:
+            continue
+        nome = str(nome).strip()[:80]
+        if not nome:
+            continue
+        try:
+            if isinstance(val, dict):
+                preco, mins = float(val["preco"]), int(val["minutos"])
+            elif isinstance(val, (list, tuple)) and len(val) >= 2:
+                preco, mins = float(val[0]), int(val[1])
+            else:
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        if mins < 5:
+            mins = 5
+        out[nome] = (round(preco, 2), mins)
+    return out or _servicos_padrao()
+
+
+def salvar_servicos(servicos: dict[str, tuple[float, int]] | list[dict]) -> None:
+    """Persiste a tabela. Aceita dict nome→(preço, min) ou lista de {nome, preco, minutos}."""
+    normalizado: dict[str, list] = {}
+    if isinstance(servicos, dict):
+        pares = servicos.items()
+    else:
+        pares = ((s.get("nome"), (s.get("preco"), s.get("minutos"))) for s in servicos)
+    for nome, val in pares:
+        nome = (str(nome) if nome is not None else "").strip()[:80]
+        if not nome:
+            continue
+        try:
+            if isinstance(val, dict):
+                preco, mins = float(val["preco"]), int(val["minutos"])
+            else:
+                preco, mins = float(val[0]), int(val[1])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if mins < 5:
+            mins = 5
+        normalizado[nome] = [round(preco, 2), mins]
+    if not normalizado:
+        raise ValueError("Informe ao menos um serviço válido.")
+    salvar_config("servicos", json.dumps(normalizado, ensure_ascii=False))
+
+
+def tabela_servicos_texto() -> str:
+    """Lista amigável para a IA / WhatsApp."""
+    linhas = []
+    for nome, (preco, mins) in listar_servicos().items():
+        linhas.append(f"- {nome}: R$ {preco:.2f} (~{mins} min)".replace(".", ","))
+    return "\n".join(linhas)

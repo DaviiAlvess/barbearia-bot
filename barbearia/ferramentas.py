@@ -83,10 +83,17 @@ DECLARACOES = [
         },
     },
     {
+        "name": "ver_tabela_servicos",
+        "description": "Lista os serviços oferecidos com preço e duração. "
+                       "Use quando o cliente perguntar valores, o que tem, ou a tabela de preços.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "ver_fidelidade",
         "description": "Mostra quantos atendimentos o cliente já fez e quanto falta para o brinde do cartão fidelidade.",
         "parameters": {"type": "object", "properties": {}},
     },
+
     {
         "name": "lembrar_cliente",
         "description": "Guarda o nome do cliente, o barbeiro preferido ou uma observação útil "
@@ -180,6 +187,12 @@ def executar(nome, args, telefone, enviar=None):
         if nome == "entrar_lista_espera":
             return agenda.entrar_lista_espera(telefone, args.get("data"), args.get("servico", ""),
                                               args.get("barbeiro"))
+        if nome == "ver_tabela_servicos":
+            tabela = [
+                {"servico": n, "preco": p, "minutos": m}
+                for n, (p, m) in db.listar_servicos().items()
+            ]
+            return {"servicos": tabela, "texto": db.tabela_servicos_texto()}
         if nome == "ver_fidelidade":
             return agenda.fidelidade(telefone)
         if nome == "lembrar_cliente":

@@ -43,7 +43,8 @@ BARBEIROS = {
     "Thiago": {"folgas": [5], "especialidade": "platinado, luzes e pigmentação"},
 }
 
-# Serviços: nome -> (preço em reais, duração em minutos)
+# Serviços padrão: nome -> (preço em reais, duração em minutos).
+# No painel web (Serviços) dá para editar; o que estiver lá vale para o bot.
 SERVICOS = {
     "Corte": (35.00, 30),
     "Barba": (25.00, 30),

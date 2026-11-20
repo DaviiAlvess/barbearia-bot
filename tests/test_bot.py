@@ -288,7 +288,18 @@ def _login_painel(client, senha="s3nha"):
     return client
 
 
+def test_tabela_servicos_banco_e_ferramenta():
+    assert "Corte" in db.listar_servicos()
+    db.salvar_servicos({"Corte social": (40.0, 30), "Barba": (28.0, 25)})
+    assert db.listar_servicos()["Corte social"] == (40.0, 30)
+    assert agenda.achar_servico("corte social") == "Corte social"
+    r = ferramentas.executar("ver_tabela_servicos", {}, TEL)
+    assert any(s["servico"] == "Barba" and s["preco"] == 28.0 for s in r["servicos"])
+    assert "R$" in r["texto"]
+
+
 def test_nome_salao_painel_e_banco():
+
     assert db.nome_salao() == "Meu Salão"
     db.salvar_config("nome_salao", "Barbearia Teste")
     assert db.nome_salao() == "Barbearia Teste"
@@ -317,10 +328,25 @@ def test_painel(monkeypatch):
     r = c.post("/salao", data={"nome": "Navalha & Cia"}, follow_redirects=False)
     assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
     assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
+    # tabela de serviços no painel
+    assert c.get("/servicos").status_code == 200 and "Serviços e preços" in c.get("/servicos").text
+    r = c.post(
+        "/servicos",
+        data={
+            "nome": ["Corte", "Barba", ""],
+            "preco": ["42", "22.5", ""],
+            "minutos": ["30", "30", ""],
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and "ok=1" in r.headers["location"]
+    assert db.listar_servicos()["Corte"] == (42.0, 30)
+    assert db.listar_servicos()["Barba"] == (22.5, 30)
     r = c.post("/bloquear", data={"data": QUARTA, "barbeiro": "", "motivo": "Feriado"},
                follow_redirects=False)
     assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]
     assert "Data inválida" in c.get("/?data=xx").text
+
 
 
 def test_painel_whatsapp_qr(monkeypatch):
