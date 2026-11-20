@@ -161,6 +161,12 @@ class Atendente:
                 log.error("Falha na IA para %s: %s", telefone, e)
                 for aviso in avisos:  # devolve os avisos para não perder o contexto
                     db.guardar_aviso(telefone, aviso)
+                err = str(e).lower()
+                if "429" in err or "quota" in err or "resource_exhausted" in err:
+                    return [(
+                        "Tô com bastante movimento agora. Me manda de novo em alguns minutos "
+                        "que eu te atendo na hora, beleza?"
+                    )]
                 return [random.choice(humanizar.SEM_IA)]
 
             apagou = any(p.get("functionCall", {}).get("name") == "apagar_meus_dados"
