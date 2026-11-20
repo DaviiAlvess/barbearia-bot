@@ -270,8 +270,12 @@ def test_guardrails_bloqueia_sistema_e_servico_fantasma():
     s = guardrails.sanitizar_resposta("Temos progressiva e botox capilar sim!")
     assert "progressiva" not in s.lower() or "tem estes" in s.lower()
     assert "Corte" in guardrails.sanitizar_resposta("Corte fica R$ 35")
+    fora = guardrails.sanitizar_resposta(
+        "Boa ideia, uma compressa fria ou um soro geladinho ajuda. Desejo melhoras pro Rafael!")
+    assert "soro" not in fora.lower() and "barbearia" in fora.lower()
     txt = persona.montar(None, None, True)
     assert "PROIBIDO" in txt and "FLUXO DE AGENDAMENTO" in txt
+    assert "ESCOPO" in txt
     assert "EXEMPLOS DE CONVERSA" in txt and "ROTEIRO POR INTENÇÃO" in txt
     assert "FRASES RUINS" in txt and "Respostas curtas de confirmação" in txt
     assert "Inventar serviço" in txt or "invente serviço" in txt.lower() or "NÃO invente" in txt

@@ -27,6 +27,25 @@ _SUBSTITUTO_SISTEMA = (
     "(marcar horário, ver serviços ou outra dúvida) que eu te ajudo."
 )
 
+_REDIRECIONA_BARBEARIA = (
+    "Aqui eu cuido só da barbearia — marcar horário, serviços ou dúvidas do salão. "
+    "Em que posso te ajudar?"
+)
+
+# Respostas que fogem do escopo (saúde, papo aleatório)
+_FORA_ESCOPO = re.compile(
+    r"("
+    r"\b(soro|rem[eé]dio|compressa|dipirona|paracetamol|antibiot|diagn[oó]stico|"
+    r"m[eé]dic[oa]|hospital|farm[aá]cia|febre|inje[cç][aã]o)\b|"
+    r"melhoras pro |"
+    r"desejo melhoras|"
+    r"toma um |"
+    r"coloca gelo|"
+    r"vai passar"
+    r")",
+    re.IGNORECASE,
+)
+
 # Nomes que a IA costuma inventar e que NÃO podem aparecer se não estiverem no banco
 _FANTASMAS = (
     "escova progressiva", "progressiva", "botox capilar", "selagem",
@@ -48,11 +67,13 @@ def nomes_servicos_permitidos() -> set[str]:
 
 
 def sanitizar_resposta(texto: str) -> str:
-    """Bloqueia falas de sistema caiu e serviços inventados."""
+    """Bloqueia falas de sistema caiu, serviços inventados e papo fora da barbearia."""
     if not (texto or "").strip():
         return texto
     if _BLOQUEIO_SISTEMA.search(texto):
         return _SUBSTITUTO_SISTEMA
+    if _FORA_ESCOPO.search(texto) and not _parece_barbeiria(texto):
+        return _REDIRECIONA_BARBEARIA
 
     permitidos = nomes_servicos_permitidos()
     if _tem_servico_fantasma(texto, permitidos):
@@ -62,6 +83,15 @@ def sanitizar_resposta(texto: str) -> str:
         return ("No momento a tabela de serviços está vazia no painel. "
                 "Posso chamar alguém da equipe pra te atender?")
     return texto
+
+
+def _parece_barbeiria(texto: str) -> bool:
+    t = _sem_acento(texto)
+    pistas = (
+        "horario", "agend", "corte", "barba", "barbeir", "salao", "preco",
+        "servico", "marcar", "vaga", "endereco", "fidelidade",
+    )
+    return any(p in t for p in pistas)
 
 def _tem_servico_fantasma(texto: str, permitidos: set[str]) -> bool:
     texto_n = _sem_acento(texto)
