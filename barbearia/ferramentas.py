@@ -1,6 +1,5 @@
 """Ferramentas que a IA pode chamar. É assim que ela consulta a agenda de verdade
 em vez de inventar horário ou preço."""
-import os
 import time
 
 from barbearia import agenda, db
@@ -226,7 +225,8 @@ def executar(nome, args, telefone, enviar=None):
             return {"ok": True}
         if nome == "registrar_avaliacao":
             r = agenda.registrar_avaliacao(telefone, args.get("nota"), args.get("comentario"))
-            dono = os.getenv("TELEFONE_DONO")
+            from barbearia.atendente import telefone_dono
+            dono = telefone_dono()
             if enviar and dono and r["nota"] <= 3:
                 enviar(dono, f"⚠️ Avaliação {r['nota']}/5 para {r['barbeiro']} (cliente {telefone}): "
                              f"{args.get('comentario') or 'sem comentário'}")
@@ -243,7 +243,8 @@ def executar(nome, args, telefone, enviar=None):
             return {"ok": True, "horarios_cancelados": cancelados}
         if nome == "chamar_atendente_humano":
             db.pausar_bot(telefone, time.time() + PAUSA_HUMANO_HORAS * 3600)
-            dono = os.getenv("TELEFONE_DONO")
+            from barbearia.atendente import telefone_dono
+            dono = telefone_dono()
             if enviar and dono:
                 enviar(dono, f"🔔 {db.nome_salao()}: cliente {telefone} precisa de atendimento. "
                             f"Motivo: {args.get('motivo')}")

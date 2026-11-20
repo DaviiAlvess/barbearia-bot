@@ -221,11 +221,25 @@ def test_comandos_do_dono(monkeypatch):
 
 
 def test_eh_dono_aceita_com_ou_sem_55(monkeypatch):
+    from barbearia import atendente as at
     from barbearia.atendente import _eh_dono
     monkeypatch.setenv("TELEFONE_DONO", "5575999990000")
+    monkeypatch.setattr(at, "telefone_dono", lambda: "5575999990000")
     assert _eh_dono("5575999990000")
     assert _eh_dono("75999990000")
     assert not _eh_dono("5575888880000")
+
+
+def test_telefone_dono_prioriza_whatsapp_conectado(monkeypatch):
+    """Dono = número que escaneou o QR; .env só como fallback."""
+    from barbearia import atendente as at
+    from barbearia import evolution as evo
+
+    monkeypatch.setenv("TELEFONE_DONO", "5575900000000")
+    monkeypatch.setattr(evo, "numero_conectado", lambda: "557581829675")
+    assert at.telefone_dono() == "557581829675"
+    monkeypatch.setattr(evo, "numero_conectado", lambda: None)
+    assert at.telefone_dono() == "5575900000000"
 
 
 def test_sem_bot_casa_mesmo_com_digito_a_mais():
@@ -555,10 +569,12 @@ def test_painel_whatsapp_qr(monkeypatch):
 
     monkeypatch.setattr(
         evo, "status_para_painel",
-        lambda: {"conectado": True, "temQr": False},
+        lambda: {"conectado": True, "temQr": False, "numero": "557581829675"},
     )
+    monkeypatch.setattr(evo, "numero_conectado", lambda: "557581829675")
     r = c.get("/whatsapp")
     assert r.status_code == 200 and "Conectado" in r.text
+    assert "557581829675" in r.text
 
 
 def test_evolution_extrair_mensagem():

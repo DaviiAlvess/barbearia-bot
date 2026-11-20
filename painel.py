@@ -658,9 +658,13 @@ def ver_whatsapp():
         return pagina("WhatsApp", corpo, refresh=8)
 
     if st.get("conectado"):
-        corpo = """<div class=card><h3>WhatsApp</h3>
+        num = st.get("numero") or evo.numero_conectado() or ""
+        num_txt = e(num) if num else "(ainda não li o número)"
+        corpo = f"""<div class=card><h3>WhatsApp</h3>
         <p class=ok>Conectado. Não precisa escanear QR.</p>
-        <p class=vazio>Se desconectar, esta página mostra o QR automaticamente.</p>
+        <p>Número do aparelho (dono / comandos <code>#agenda</code>): <b>{num_txt}</b></p>
+        <p class=vazio>Esse é o WhatsApp que escaneou o QR. Comandos # e alertas vão para ele.
+        Se desconectar, esta página mostra o QR automaticamente.</p>
         <p><a href="/whatsapp">Atualizar</a></p></div>"""
         return pagina("WhatsApp", corpo, refresh=30)
 

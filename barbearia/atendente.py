@@ -75,9 +75,21 @@ _NEGACOES = {
 }
 
 
+def telefone_dono() -> str:
+    """Número do dono = WhatsApp conectado (QR), senão TELEFONE_DONO do .env."""
+    try:
+        from barbearia import evolution as evo
+        conectado = evo.numero_conectado()
+        if conectado:
+            return db.normalizar_telefone(conectado) or conectado
+    except Exception:  # noqa: BLE001 — Evolution pode estar offline nos testes
+        pass
+    return (os.getenv("TELEFONE_DONO") or "").strip()
+
+
 def _eh_dono(telefone: str) -> bool:
-    """Compara com TELEFONE_DONO aceitando com/sem 55 e só dígitos."""
-    dono = (os.getenv("TELEFONE_DONO") or "").strip()
+    """Compara com o número conectado / TELEFONE_DONO (com ou sem 55)."""
+    dono = telefone_dono()
     if not dono:
         return False
     a, b = db.normalizar_telefone(telefone), db.normalizar_telefone(dono)

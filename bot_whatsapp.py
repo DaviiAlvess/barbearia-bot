@@ -22,9 +22,9 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 load_dotenv()
 
-from barbearia import configurar_log, db  # noqa: E402
+from barbearia import configurar_log  # noqa: E402
 from barbearia import evolution as evo  # noqa: E402
-from barbearia.atendente import Atendente, _eh_dono  # noqa: E402
+from barbearia.atendente import Atendente, _eh_dono, telefone_dono  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
 from barbearia.ia import Gemini  # noqa: E402
 
@@ -104,10 +104,6 @@ def _payload_mensagem(payload: dict) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _telefone_dono() -> str:
-    return db.normalizar_telefone(os.getenv("TELEFONE_DONO") or "") or (os.getenv("TELEFONE_DONO") or "")
-
-
 def tratar_mensagem(payload: dict) -> None:
     try:
         ev = _evento_nome(payload)
@@ -148,9 +144,9 @@ def tratar_mensagem(payload: dict) -> None:
         if from_me:
             if not texto.startswith("#"):
                 return
-            destino = _telefone_dono() or numero
+            destino = telefone_dono() or numero
             if not destino:
-                log.warning("Comando fromMe ignorado: TELEFONE_DONO vazio")
+                log.warning("Comando fromMe ignorado: número conectado / TELEFONE_DONO vazio")
                 return
             log.info("Comando do aparelho (#) → dono %s: %s", destino, texto[:80])
             _pool.submit(processar, destino, texto)
@@ -163,8 +159,8 @@ def tratar_mensagem(payload: dict) -> None:
         log.info("Mensagem de %s: %s", numero, texto[:80])
         if texto.startswith("#") and not _eh_dono(numero):
             log.warning(
-                "Comando # de %s ignorado (não é TELEFONE_DONO=%s)",
-                numero, _telefone_dono() or "(vazio)",
+                "Comando # de %s ignorado (dono/conectado=%s)",
+                numero, telefone_dono() or "(vazio)",
             )
         _pool.submit(processar, numero, texto)
     except Exception:  # noqa: BLE001
@@ -174,21 +170,19 @@ def tratar_mensagem(payload: dict) -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     log.info("Boot Evolution: URL=%s instance=%s", evo.URL, evo.INSTANCE)
-    dono = _telefone_dono()
-    if not dono or dono.endswith("00000000") or dono == "5575900000000":
-        log.error(
-            "TELEFONE_DONO parece placeholder (%s). "
-            "Comandos #agenda/#semchat só funcionam com o número real do dono no .env",
-            dono or "(vazio)",
-        )
-    else:
-        log.info("TELEFONE_DONO configurado (%s…)", dono[:6])
     try:
         evo.garantir_instancia()
         st = evo.estado_conexao()
         log.info("Estado da conexão: %s", st)
         if st != "open":
             evo.conectar()
+        conectado = evo.numero_conectado()
+        if conectado:
+            os.environ["TELEFONE_DONO"] = conectado
+            log.info("Dono = WhatsApp conectado (%s…)", conectado[:6])
+        else:
+            dono = telefone_dono()
+            log.warning("Sem ownerJid ainda; usando TELEFONE_DONO=%s", dono[:6] if dono else "(vazio)")
     except Exception:  # noqa: BLE001
         log.exception("Falha ao preparar instância Evolution (vou seguir; webhook pode criar depois)")
     threading.Thread(target=loop_programadas, daemon=True).start()

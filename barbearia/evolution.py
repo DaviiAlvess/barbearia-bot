@@ -150,6 +150,30 @@ def estado_conexao() -> str:
     return str(inst.get("state") or data.get("state") or "unknown").lower()
 
 
+def numero_conectado() -> str | None:
+    """Número do WhatsApp que escaneou o QR (ownerJid da instância)."""
+    nome = INSTANCE.lower()
+    for item in listar_instancias():
+        inst = item.get("instance") if isinstance(item.get("instance"), dict) else item
+        n = (inst or {}).get("instanceName") or item.get("name") or item.get("instanceName")
+        if not n or str(n).lower() != nome:
+            continue
+        jid = (
+            item.get("ownerJid")
+            or (inst or {}).get("ownerJid")
+            or item.get("owner")
+            or (inst or {}).get("owner")
+            or item.get("number")
+            or (inst or {}).get("number")
+            or ""
+        )
+        tel = extrair_telefone(str(jid)) if jid else None
+        if not tel and jid:
+            tel = "".join(c for c in str(jid).split("@")[0] if c.isdigit()) or None
+        return tel or None
+    return None
+
+
 def conectar() -> dict:
     """Inicia conexão / renova QR. Resposta típica: pairingCode, code, base64, count."""
     r = _req("GET", f"/instance/connect/{INSTANCE}", timeout=30)
@@ -196,7 +220,12 @@ def status_para_painel() -> dict:
             return {"conectado": False, "temQr": False, "erro": str(exc)}
 
     if st == "open":
-        return {"conectado": True, "temQr": False, "estado": st}
+        return {
+            "conectado": True,
+            "temQr": False,
+            "estado": st,
+            "numero": numero_conectado(),
+        }
 
     if st == "unknown":
         return {"conectado": False, "temQr": False, "erro": f"Evolution sem resposta em {URL}"}
