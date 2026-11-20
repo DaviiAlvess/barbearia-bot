@@ -282,6 +282,18 @@ def test_banco_antigo_e_migrado(tmp_path, monkeypatch):
     assert db.aceita_mensagens("qualquer")
 
 
+def _login_painel(client, senha="s3nha"):
+    r = client.post("/login", data={"senha": senha, "next": "/"}, follow_redirects=False)
+    assert r.status_code == 303
+    return client
+
+
+def test_nome_salao_painel_e_banco():
+    assert db.nome_salao() == "Meu Salão"
+    db.salvar_config("nome_salao", "Barbearia Teste")
+    assert db.nome_salao() == "Barbearia Teste"
+
+
 def test_painel(monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -289,12 +301,67 @@ def test_painel(monkeypatch):
     monkeypatch.setenv("PAINEL_SENHA", "s3nha")
     agenda.agendar(TEL, "<script>alert(1)</script>", SABADO, "09:00", "Corte", "Rafael")
     c = TestClient(painel.app)
-    assert c.get("/").status_code == 401
-    assert c.get("/", auth=("dono", "errada")).status_code == 401
-    r = c.get(f"/?data={SABADO}", auth=("dono", "s3nha"))
+    # sem login: redireciona para página HTML (não JSON)
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 303 and "/login" in r.headers["location"]
+    assert "Entrar" in c.get("/login").text and "Senha" in c.get("/login").text
+    assert c.post("/login", data={"senha": "errada", "next": "/"}).status_code == 200
+    assert "Senha incorreta" in c.post("/login", data={"senha": "errada", "next": "/"}).text
+    _login_painel(c)
+    assert "Agendbarber" in c.get("/login").text or "Agendbarber" in c.get("/").text
+    r = c.get(f"/?data={SABADO}")
     assert r.status_code == 200 and "R$ 35.00" in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
+    # nome do salão pelo painel
+    assert c.get("/salao").status_code == 200 and "Nome do salão" in c.get("/salao").text
+    r = c.post("/salao", data={"nome": "Navalha & Cia"}, follow_redirects=False)
+    assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
+    assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
     r = c.post("/bloquear", data={"data": QUARTA, "barbeiro": "", "motivo": "Feriado"},
-               auth=("dono", "s3nha"), follow_redirects=False)
+               follow_redirects=False)
     assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]
-    assert "Data inválida" in c.get("/?data=xx", auth=("dono", "s3nha")).text
+    assert "Data inválida" in c.get("/?data=xx").text
+
+
+def test_painel_whatsapp_qr(monkeypatch):
+    """Página do QR: autentica, mostra status e faz proxy do PNG — sem conversas."""
+    from fastapi.testclient import TestClient
+
+    import painel
+
+    monkeypatch.setenv("PAINEL_SENHA", "s3nha")
+    monkeypatch.setattr(painel, "SERVIDOR_WHATSAPP", "http://whatsapp-fake")
+
+    class FakeResp:
+        def __init__(self, status_code=200, payload=None, content=b""):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.content = content
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, timeout=3):
+        if url.endswith("/status"):
+            return FakeResp(200, {"conectado": False, "temQr": True, "idSessao": "8113"})
+        if url.endswith("/qr.png"):
+            return FakeResp(200, content=b"\x89PNG\r\n\x1a\nfake")
+        raise AssertionError(url)
+
+    monkeypatch.setattr(painel.requests, "get", fake_get)
+    c = TestClient(painel.app)
+    assert c.get("/whatsapp", follow_redirects=False).status_code == 303
+    _login_painel(c)
+    r = c.get("/whatsapp")
+    assert r.status_code == 200
+    assert "Escaneie o QR" in r.text and 'src="/whatsapp/qr.png' in r.text
+    assert "conversa" not in r.text.lower()
+    png = c.get("/whatsapp/qr.png")
+    assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
+
+    def fake_conectado(url, timeout=3):
+        return FakeResp(200, {"conectado": True, "temQr": False, "idSessao": "8113"})
+
+    monkeypatch.setattr(painel.requests, "get", fake_conectado)
+    r = c.get("/whatsapp")
+    assert r.status_code == 200 and "Conectado" in r.text
