@@ -2,6 +2,7 @@
 Funciona com qualquer canal (terminal, WhatsApp...)."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -23,6 +24,8 @@ MAX_CARACTERES = 1500           # textos maiores são cortados (evita abuso e ga
 LIMITE_MENSAGENS = 12           # máximo de mensagens por cliente...
 JANELA_SEGUNDOS = 60            # ...dentro desta janela
 HORARIO_SILENCIO = (21, 8)      # não manda lembrete/avaliação entre 21h e 8h
+FOLLOWUP_MIN_HORAS = 2          # silêncio mínimo antes de retomar conversa esquecida
+FOLLOWUP_MAX_HORAS = 18         # depois disso, deixa quieto (próximo "oi" reabre)
 
 Enviar = Callable[[str, str], None]
 
@@ -52,6 +55,44 @@ def em_horario_de_silencio() -> bool:
     h = agenda.agora().hour
     inicio, fim = HORARIO_SILENCIO
     return h >= inicio or h < fim
+
+
+_PALAVRAS_ATENDIMENTO = (
+    "horário", "horario", "marcar", "agendar", "corte", "barba", "vaga",
+    "disponí", "disponi", "sábado", "sabado", "amanhã", "amanha", "hoje",
+    "preço", "preco", "serviço", "servico", "barbeiro", "quando", "às", "as ",
+)
+
+
+def _textos_do_historico(hist: list[dict]) -> list[str]:
+    textos = []
+    for h in hist:
+        for p in h.get("parts") or []:
+            if "text" in p and p["text"]:
+                textos.append(str(p["text"]))
+    return textos
+
+
+def _parece_atendimento_aberto(hist: list[dict]) -> bool:
+    """True se a conversa parou no meio (pergunta aberta ou intenção de marcar sem fechar)."""
+    if not hist:
+        return False
+    textos = _textos_do_historico(hist)
+    if not textos:
+        return False
+    ultimo = textos[-1].strip()
+    if ultimo.endswith("?"):
+        return True
+    junto = " ".join(textos).lower()
+    if any(p in junto for p in _PALAVRAS_ATENDIMENTO):
+        # já agendou nesta conversa? (functionResponse de agendar com ok)
+        for h in hist:
+            for p in h.get("parts") or []:
+                fr = p.get("functionResponse") or {}
+                if fr.get("name") == "agendar" and (fr.get("response") or {}).get("ok"):
+                    return False
+        return True
+    return False
 
 
 class Atendente:
@@ -104,8 +145,13 @@ class Atendente:
                             f"\"{' | '.join(avisos)}\". Ele está respondendo a isso.]\n{texto}")
                 conversa_nova = False  # ele está respondendo a nós; não cumprimenta do zero
 
-            instrucoes = persona.montar(db.obter_cliente(telefone), db.ultimo_atendimento(telefone),
-                                        conversa_nova)
+            pendentes = agenda.agendamentos_futuros(telefone)
+            instrucoes = persona.montar(
+                db.obter_cliente(telefone),
+                db.ultimo_atendimento(telefone),
+                conversa_nova,
+                pendentes=pendentes,
+            )
             inicio_turno = len(hist)
             hist.append({"role": "user", "parts": [{"text": texto_ia}]})
 
@@ -228,7 +274,7 @@ class Atendente:
 
     # ------------------------------------------------------------------
     def mensagens_programadas(self) -> list[tuple[str, str]]:
-        """Lembretes e pedidos de avaliação que estão na hora de mandar: [(telefone, texto)]."""
+        """Lembretes, avaliações e retomada de conversas esquecidas: [(telefone, texto)]."""
         if em_horario_de_silencio():
             return []
         saida = [(lem["telefone"], self._texto_lembrete(lem)) for lem in agenda.lembretes_pendentes()]
@@ -241,10 +287,46 @@ class Atendente:
                 f"E aí{saud}, curtiu o resultado? Se puder, dá uma nota de 1 a 5 pro atendimento "
                 f"do {a['barbeiro']}. Ajuda muito a gente a melhorar!",
             ])))
+        saida.extend(self._followups_esquecidos())
+        return saida
+
+    def _followups_esquecidos(self) -> list[tuple[str, str]]:
+        """Retoma conversas que pararam no meio do atendimento (sem insistir demais)."""
+        agora = time.time()
+        saida = []
+        for row in db.conversas_esquecidas(
+            agora,
+            min_silencio=FOLLOWUP_MIN_HORAS * 3600,
+            max_idade=FOLLOWUP_MAX_HORAS * 3600,
+        ):
+            telefone = row["telefone"]
+            if not db.aceita_mensagens(telefone):
+                continue
+            try:
+                hist = json.loads(row["historico"]) if isinstance(row["historico"], str) else row["historico"]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not _parece_atendimento_aberto(hist or []):
+                continue
+            # já tem horário marcado: não fica cobrando; o lembrete de agenda cobre
+            if agenda.agendamentos_futuros(telefone):
+                db.marcar_followup(telefone, agora)
+                continue
+            cliente = db.obter_cliente(telefone) or {}
+            nome = (cliente.get("nome") or "").split(" ")[0]
+            saud = f", {nome}" if nome else ""
+            texto = random.choice([
+                f"Oi{saud}! Vi que a gente ficou no meio do papo. Ainda quer marcar o horário?",
+                f"E aí{saud}, conseguiu decidir? Se quiser, eu fecho o horário pra você por aqui.",
+                f"Oi{saud}, passando de novo: ainda posso te ajudar a marcar? Se mudou de ideia, "
+                f"é só falar 👍",
+            ])
+            db.marcar_followup(telefone, agora)
+            saida.append((telefone, texto))
         return saida
 
     def enviar_programadas(self) -> int:
-        """Manda lembretes e pedidos de avaliação. Chame de tempos em tempos (ex.: a cada 5 min)."""
+        """Manda lembretes, avaliações e follow-ups. Chame de tempos em tempos (ex.: a cada 5 min)."""
         mensagens = self.mensagens_programadas()
         for telefone, texto in mensagens:
             self.enviar(telefone, texto)

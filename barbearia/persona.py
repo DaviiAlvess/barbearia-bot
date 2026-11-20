@@ -29,7 +29,7 @@ def _periodo(h):
     return "bom dia" if h < 12 else "boa tarde" if h < 18 else "boa noite"
 
 
-def montar(cliente=None, ultimo=None, conversa_nova=True):
+def montar(cliente=None, ultimo=None, conversa_nova=True, pendentes=None):
     agora = agenda.agora()
     servicos = db.tabela_servicos_texto()
     equipe = db.tabela_barbeiros_texto()
@@ -47,6 +47,17 @@ def montar(cliente=None, ultimo=None, conversa_nova=True):
         sobre = ("Cliente novo (ainda não sabemos o nome). Pergunte o nome de forma natural "
                  "quando fizer sentido, sem parecer formulário.")
 
+    if pendentes:
+        linhas = [
+            f"- #{a['id']} {a['dia_semana']} {a['data']} às {a['hora']}: {a['servico']} com {a['barbeiro']}"
+            for a in pendentes
+        ]
+        sobre += (" Horários já marcados (não pergunte de novo se ele só confirmar; "
+                  "use se for remarcar/cancelar):\n" + "\n".join(linhas))
+    else:
+        sobre += (" Sem horário futuro marcado. Se a conversa anterior ficou no meio "
+                  "(horário, serviço, dia), retome de onde parou em vez de recomeçar do zero.")
+
     return f"""Você é o {config.NOME_ATENDENTE}, recepcionista da {db.nome_salao()}. Você atende pelo WhatsApp.
 Fale como uma pessoa real da barbearia conversando no zap: simpático, tranquilo, direto, com um toque de bom humor.
 
@@ -58,6 +69,7 @@ COMO ESCREVER (muito importante):
 - Varie as palavras; não repita sempre a mesma saudação ou a mesma frase de fechamento.
 - Faça uma pergunta por vez. Leve a conversa até marcar o horário, sem pressionar.
 - {"É o início da conversa: use o fluxo de RECEPÇÃO abaixo." if conversa_nova else "A conversa já está rolando: NÃO cumprimente de novo; continue de onde parou."}
+- Sempre procure no histórico se ficou algum atendimento pela metade (cliente pediu horário e sumiu, ou você perguntou e ele não fechou). Se achar, retome com naturalidade em uma frase, sem cobrar.
 - Nunca diga que é uma IA, um robô ou "assistente virtual", a não ser que perguntem diretamente. Se perguntarem, seja honesto: diga que é o atendimento automático da barbearia e que pode chamar alguém da equipe.
 
 RECEPÇÃO (primeira conversa — acolher como um bom recepcionista):

@@ -73,7 +73,10 @@ CREATE TABLE IF NOT EXISTS configuracoes (
 
 # colunas adicionadas depois da primeira versão (para quem já tem o banco criado)
 MIGRACOES = {
-    "conversas": {"avisos": "TEXT NOT NULL DEFAULT '[]'"},
+    "conversas": {
+        "avisos": "TEXT NOT NULL DEFAULT '[]'",
+        "followup_em": "REAL NOT NULL DEFAULT 0",  # último toque de conversa esquecida
+    },
     "clientes": {"aceita_mensagens": "INTEGER NOT NULL DEFAULT 1"},
     "agendamentos": {"lembrete_vespera": "INTEGER NOT NULL DEFAULT 0",
                      "lembrete_proximo": "INTEGER NOT NULL DEFAULT 0",
@@ -195,6 +198,30 @@ def pausar_bot(telefone: str, ate: float) -> None:
                ON CONFLICT(telefone) DO UPDATE SET humano_ate = excluded.humano_ate""",
             (telefone, ate),
         )
+
+
+def marcar_followup(telefone: str, quando: float) -> None:
+    with conexao() as con:
+        con.execute("INSERT OR IGNORE INTO conversas (telefone, atualizado_em) VALUES (?, 0)", (telefone,))
+        con.execute("UPDATE conversas SET followup_em = ? WHERE telefone = ?", (quando, telefone))
+
+
+def conversas_esquecidas(agora: float, min_silencio: float = 2 * 3600,
+                         max_idade: float = 18 * 3600) -> list[dict[str, Any]]:
+    """Conversas com histórico recente, paradas há um tempo, ainda sem follow-up nesta pausa."""
+    limiar_min = agora - max_idade
+    limiar_max = agora - min_silencio
+    with conexao() as con:
+        rows = con.execute(
+            """SELECT telefone, historico, atualizado_em, humano_ate, followup_em
+               FROM conversas
+               WHERE atualizado_em >= ? AND atualizado_em <= ?
+                 AND humano_ate < ?
+                 AND historico != '[]'
+                 AND followup_em < atualizado_em""",
+            (limiar_min, limiar_max, agora),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def apagar_dados_cliente(telefone: str) -> None:

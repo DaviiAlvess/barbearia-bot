@@ -246,6 +246,43 @@ def test_horario_de_silencio(monkeypatch):
     assert Atendente(FakeIA([])).mensagens_programadas() == []
 
 
+def test_followup_conversa_esquecida(monkeypatch):
+    """Conversa parada no meio do agendamento recebe um toque; não repete; respeita quem já marcou."""
+    import time as _time
+
+    ia = FakeIA([
+        ("ver_horarios_livres", {"data": SABADO, "servico": "Corte", "barbeiro": "Rafael"}),
+        "Sábado com o Rafael tenho 08:00 e 09:00.\n\nQual fica melhor?",
+    ])
+    bot = Atendente(ia)
+    bot.responder(TEL, "tem horário sábado com o rafael?")
+    # simula silêncio de 3h
+    hist, _, _ = db.carregar_conversa(TEL)
+    parado = _time.time() - 3 * 3600
+    db.salvar_conversa(TEL, hist, parado)
+
+    msgs = bot.mensagens_programadas()
+    assert len(msgs) == 1 and msgs[0][0] == TEL
+    assert "marcar" in msgs[0][1].lower() or "horário" in msgs[0][1].lower() or "decidir" in msgs[0][1].lower()
+    assert bot.mensagens_programadas() == []  # não martela
+
+    # se já agendou, não manda follow-up de conversa (só lembretes de agenda, se houver)
+    agenda.agendar(TEL, "Marcos", SABADO, "09:00", "Corte", "Rafael")
+    db.salvar_conversa(TEL, hist, _time.time() - 3 * 3600)
+    db.marcar_followup(TEL, 0)  # libera de novo
+    msgs2 = Atendente(FakeIA([])).mensagens_programadas()
+    assert not any("ainda quer marcar" in m[1].lower() or "conseguiu decidir" in m[1].lower()
+                   for m in msgs2)
+
+
+def test_persona_sempre_ve_agendamentos_pendentes():
+    agenda.agendar(TEL, "Marcos", SABADO, "09:00", "Corte", "Rafael")
+    pend = agenda.agendamentos_futuros(TEL)
+    txt = persona.montar(db.obter_cliente(TEL), None, False, pendentes=pend)
+    assert "09:00" in txt and "Rafael" in txt and "Horários já marcados" in txt
+    assert "retome de onde parou" in persona.montar(None, None, True, pendentes=[])
+
+
 def test_apagar_dados(monkeypatch):
     ia = FakeIA([("apagar_meus_dados", {}), "Pronto, apaguei seus dados. Qualquer coisa é só chamar!"])
     bot = Atendente(ia)
