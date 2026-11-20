@@ -83,9 +83,10 @@ def criar_instancia() -> dict:
         "qrcode": True,
     }
     if WEBHOOK_URL:
+        wh_url = WEBHOOK_URL if WEBHOOK_URL.endswith("/webhook") else f"{WEBHOOK_URL}/webhook"
         corpo["webhook"] = {
             "enabled": True,
-            "url": WEBHOOK_URL if WEBHOOK_URL.endswith("/webhook") else f"{WEBHOOK_URL}/webhook",
+            "url": wh_url,
             "byEvents": False,
             "base64": False,
             "events": WEBHOOK_EVENTS,
@@ -100,18 +101,23 @@ def configurar_webhook() -> None:
     if not WEBHOOK_URL:
         return
     url = WEBHOOK_URL if WEBHOOK_URL.endswith("/webhook") else f"{WEBHOOK_URL}/webhook"
-    corpo = {
+    # v2.3.x exige o objeto aninhado em "webhook"
+    webhook = {
         "enabled": True,
         "url": url,
-        "webhookByEvents": False,
-        "webhookBase64": False,
+        "byEvents": False,
+        "base64": False,
         "events": WEBHOOK_EVENTS,
     }
+    corpo = {"webhook": webhook}
     r = _req("POST", f"/webhook/set/{INSTANCE}", json=corpo, timeout=20)
     if r.status_code >= 300:
-        log.warning("webhook/set %s: %s", r.status_code, r.text[:200])
-    else:
-        log.info("Webhook apontando para %s", url)
+        # fallback flat (docs / versões anteriores)
+        r2 = _req("POST", f"/webhook/set/{INSTANCE}", json=webhook, timeout=20)
+        if r2.status_code >= 300:
+            log.warning("webhook/set %s/%s: %s | %s", r.status_code, r2.status_code, r.text[:120], r2.text[:120])
+            return
+    log.info("Webhook apontando para %s", url)
 
 
 def garantir_instancia() -> None:
