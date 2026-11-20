@@ -75,6 +75,18 @@ _NEGACOES = {
 }
 
 
+def _eh_dono(telefone: str) -> bool:
+    """Compara com TELEFONE_DONO aceitando com/sem 55 e só dígitos."""
+    dono = (os.getenv("TELEFONE_DONO") or "").strip()
+    if not dono:
+        return False
+    a, b = db.normalizar_telefone(telefone), db.normalizar_telefone(dono)
+    if a and b:
+        return a == b or a.endswith(b) or b.endswith(a)
+    # fallback (ex.: testes com TELEFONE_DONO=dono)
+    return (telefone or "").strip() == dono
+
+
 def _dica_resposta_curta(texto: str) -> str | None:
     """Ajuda a IA a interpretar 'sim'/'não' curtos no WhatsApp."""
     t = (texto or "").strip().lower()
@@ -132,7 +144,7 @@ class Atendente:
         """Manda mensagem por iniciativa do bot e guarda para dar contexto à próxima resposta."""
         if not self._enviar_canal:
             return
-        if telefone != os.getenv("TELEFONE_DONO"):
+        if not _eh_dono(telefone):
             db.guardar_aviso(telefone, texto)
         self._enviar_canal(telefone, texto)
 
@@ -141,8 +153,7 @@ class Atendente:
         texto = (texto or "").strip()[:MAX_CARACTERES]
         if not texto:
             return []
-        dono = os.getenv("TELEFONE_DONO")
-        if dono and telefone == dono and texto.startswith("#"):
+        if _eh_dono(telefone) and texto.startswith("#"):
             return [self._comando_dono(texto)]
 
         agora = time.time()

@@ -220,6 +220,14 @@ def test_comandos_do_dono(monkeypatch):
     assert "Comandos" in bot.responder("dono", "#ajuda")[0]
 
 
+def test_eh_dono_aceita_com_ou_sem_55(monkeypatch):
+    from barbearia.atendente import _eh_dono
+    monkeypatch.setenv("TELEFONE_DONO", "5575999990000")
+    assert _eh_dono("5575999990000")
+    assert _eh_dono("75999990000")
+    assert not _eh_dono("5575888880000")
+
+
 def test_sem_chat_bot_nao_responde(monkeypatch):
     """Número particular: bot fica quieto; dá para tirar da lista e voltar."""
     monkeypatch.setenv("TELEFONE_DONO", "dono")
