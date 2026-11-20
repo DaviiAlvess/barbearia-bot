@@ -13,7 +13,7 @@ próprios, painel só por túnel SSH (não mexe no Nginx do outro projeto).
 | Código | `~/barbearia-bot` | pasta dele |
 | Banco | volume Docker + SQLite próprios | banco dele |
 | Rede | bridge interna do compose | rede dele |
-| Memória | teto ~1,4 GB (`mem_limit`) | independente |
+| Memória | teto ~1,7 GB (`mem_limit`) | independente |
 | Painel web | `127.0.0.1:8080` via túnel SSH | Nginx dele intacto |
 
 O que **não** separa: se a VPS inteira cair, os dois param. Isolamento total = outra VPS.
