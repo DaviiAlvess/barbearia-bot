@@ -64,6 +64,25 @@ fi
 
 install -d -o "$USUARIO" -g "$USUARIO" -m 750 "$HOME_USER/backups"
 
+# Ubuntu 23.10+ bloqueia user namespaces sem perfil AppArmor do rootlesskit.
+# Sem isso o Docker rootless falha; o reload do AppArmor NÃO reinicia Docker/Caddy do sistema.
+echo "==> AppArmor: permitindo rootlesskit do usuário $USUARIO"
+AA_FILE="/etc/apparmor.d/home.${USUARIO}.bin.rootlesskit"
+cat > "$AA_FILE" <<EOF
+# ref: https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
+abi <abi/4.0>,
+include <tunables/global>
+
+/home/${USUARIO}/bin/rootlesskit flags=(unconfined) {
+  userns,
+
+  include if exists <local/home.${USUARIO}.bin.rootlesskit>
+}
+EOF
+if command -v apparmor_parser >/dev/null 2>&1; then
+  apparmor_parser -r "$AA_FILE" 2>/dev/null || systemctl reload apparmor.service 2>/dev/null || true
+fi
+
 echo "==> Instalando Docker rootless como $USUARIO"
 sudo -u "$USUARIO" -H \
   XDG_RUNTIME_DIR="$RUNTIME" \

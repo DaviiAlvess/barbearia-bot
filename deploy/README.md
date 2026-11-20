@@ -99,3 +99,5 @@ docker compose pull && docker compose up -d --build   # atualizar
 | Chromium / QR não sobe | `docker compose logs whatsapp` (já usa `--no-sandbox`) |
 | Painel inacessível de fora | esperado — use o túnel SSH |
 | Containers param ao sair do SSH | `loginctl show-user barbearia \| grep Linger` deve ser `yes` |
+| `rootlesskit: permission denied` (AppArmor) | o `setup-rootless.sh` já cria o perfil; se falhou no meio, rode de novo ou veja o hint do instalador |
+| Porta 8080 já usada (ex. Condo) | use `PAINEL_PORTA=8090` no `.env` |
