@@ -163,6 +163,24 @@ def test_cliente_que_volta_e_reconhecido():
     assert "2026-11-21" in txt and "sábado 21/11" in txt
 
 
+def test_primeiro_contato_pede_e_salva_nome():
+    """Cliente novo: persona manda perguntar o nome; ao dizer, lembrar_cliente grava e passa a chamar."""
+    txt = persona.montar(None, None, True)
+    assert "pergunte o nome" in txt.lower() or "Qual é o seu nome" in txt
+    ia = FakeIA([
+        ("lembrar_cliente", {"nome": "Marcos"}),
+        "Beleza, Marcos! Em que posso te ajudar — marcar horário ou ver os serviços?",
+    ])
+    bot = Atendente(ia)
+    r = bot.responder(TEL, "meu nome é Marcos")
+    assert db.obter_cliente(TEL)["nome"] == "Marcos"
+    assert "Marcos" in r[0]
+    # próxima conversa já reconhece
+    ia2 = FakeIA(["Oi Marcos, tudo bem? Quer marcar de novo?"])
+    assert "Marcos" in Atendente(ia2).responder(TEL, "oi")[0]
+    assert "Cliente conhecido: Marcos" in ia2.chamadas[0][0]
+
+
 def test_passa_para_humano_e_avisa_dono(monkeypatch):
     monkeypatch.setenv("TELEFONE_DONO", "dono")
     enviados = []

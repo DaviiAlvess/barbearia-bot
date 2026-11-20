@@ -97,7 +97,8 @@ DECLARACOES = [
     {
         "name": "lembrar_cliente",
         "description": "Guarda o nome do cliente, o barbeiro preferido ou uma observação útil "
-                       "(ex.: 'gosta de degradê na régua 1'). Use assim que descobrir algo assim.",
+                       "(ex.: 'gosta de degradê na régua 1'). Use ASSIM QUE o cliente disser o nome "
+                       "(primeiro contato) ou qualquer preferência — não espere até agendar.",
         "parameters": {
             "type": "object",
             "properties": {
