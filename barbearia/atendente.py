@@ -86,7 +86,11 @@ class Atendente:
             log.warning("Limite de mensagens excedido por %s", telefone)
             return []
 
-        with _travas[telefone]:
+        trava = _travas[telefone]
+        if not trava.acquire(timeout=90):
+            log.error("Timeout na trava de %s — outra resposta travou", telefone)
+            return [random.choice(humanizar.SEM_IA)]
+        try:
             hist, atualizado, humano_ate = db.carregar_conversa(telefone)
             if humano_ate > agora:
                 return []  # um atendente humano está cuidando dessa conversa
@@ -119,6 +123,8 @@ class Atendente:
             if not apagou:  # se o cliente pediu para apagar os dados, não guarda nem a conversa
                 db.salvar_conversa(telefone, _cortar_historico(hist), agora)
             return humanizar.em_baloes(resposta) or ["Desculpa, não entendi bem. Pode me explicar de novo?"]
+        finally:
+            trava.release()
 
     def _rodar_ia(self, instrucoes: str, hist: list[dict], telefone: str) -> str:
         for _ in range(MAX_RODADAS_FERRAMENTA):

@@ -13,6 +13,7 @@ import logging
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -31,6 +32,8 @@ log = logging.getLogger("whatsapp")
 
 _vistos: OrderedDict[str, None] = OrderedDict()
 _VISTOS_MAX = 2000
+# Pool próprio: não depende de daemon thread solto (morre/trava sem log)
+_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wa")
 
 
 def _lembrar(mid: str) -> bool:
@@ -49,19 +52,29 @@ def enviar(numero: str, texto: str) -> None:
     evo.enviar_texto(numero, texto)
 
 
-def digitando(numero: str, delay_ms: int = 2000) -> None:
-    evo.digitando(numero, delay_ms)
+def digitando(numero: str) -> None:
+    # delay curto: a Evolution bloqueia a request pelo tempo do delay
+    evo.digitando(numero, delay_ms=800)
 
 
 bot = Atendente(Gemini(), enviar=enviar)
 
 
 def processar(numero: str, texto: str) -> None:
-    time.sleep(1.5)
-    for balao in bot.responder(numero, texto):
-        digitando(numero, delay_ms=int(tempo_digitando(balao) * 1000) or 1500)
-        time.sleep(tempo_digitando(balao))
-        enviar(numero, balao)
+    try:
+        log.info("Processando %s…", numero)
+        time.sleep(0.8)
+        baloes = bot.responder(numero, texto)
+        if not baloes:
+            log.warning("Sem resposta para %s (pausado, limite ou vazio)", numero)
+            return
+        for i, balao in enumerate(baloes):
+            digitando(numero)
+            time.sleep(min(3.0, tempo_digitando(balao) * 0.6))
+            enviar(numero, balao)
+            log.info("Enviado para %s (%s/%s): %s", numero, i + 1, len(baloes), balao[:60])
+    except Exception:  # noqa: BLE001
+        log.exception("Falha ao processar mensagem de %s", numero)
 
 
 def loop_programadas() -> None:
@@ -91,40 +104,48 @@ def _payload_mensagem(payload: dict) -> dict | None:
 
 
 def tratar_mensagem(payload: dict) -> None:
-    ev = _evento_nome(payload)
-    # Aceita MESSAGES_UPSERT ou payload sem event (só a mensagem)
-    if ev and ev not in ("MESSAGES_UPSERT", "MESSAGESUPSERT"):
-        return
+    try:
+        ev = _evento_nome(payload)
+        # Aceita MESSAGES_UPSERT ou payload sem event (só a mensagem)
+        if ev and ev not in ("MESSAGES_UPSERT", "MESSAGESUPSERT"):
+            return
 
-    data = _payload_mensagem(payload)
-    if not data:
-        return
+        data = _payload_mensagem(payload)
+        if not data:
+            return
 
-    key = data.get("key") or {}
-    if key.get("fromMe"):
-        return
+        key = data.get("key") or {}
+        if key.get("fromMe"):
+            return
 
-    remote = key.get("remoteJid") or data.get("remoteJid") or ""
-    numero = evo.extrair_telefone(str(remote))
-    if not numero:
-        return
+        remote = key.get("remoteJid") or data.get("remoteJid") or ""
+        numero = evo.extrair_telefone(str(remote))
+        if not numero:
+            # LID / grupo: tenta remoteJidAlt
+            alt = key.get("remoteJidAlt") or data.get("remoteJidAlt") or ""
+            numero = evo.extrair_telefone(str(alt))
+        if not numero:
+            log.debug("Ignorada (sem telefone): %s", remote)
+            return
 
-    mid = key.get("id") or data.get("id") or ""
-    if _lembrar(str(mid)):
-        return
+        mid = key.get("id") or data.get("id") or ""
+        if _lembrar(str(mid)):
+            return
 
-    message = data.get("message") or {}
-    # remove messageContextInfo noise
-    if isinstance(message, dict) and "message" in message and len(message) <= 3:
-        message = message.get("message") or message
+        message = data.get("message") or {}
+        # remove messageContextInfo noise
+        if isinstance(message, dict) and "message" in message and len(message) <= 3:
+            message = message.get("message") or message
 
-    tipo = data.get("messageType") or data.get("type")
-    texto = evo.extrair_texto_mensagem(message if isinstance(message, dict) else None, tipo)
-    if not texto:
-        return
+        tipo = data.get("messageType") or data.get("type")
+        texto = evo.extrair_texto_mensagem(message if isinstance(message, dict) else None, tipo)
+        if not texto:
+            return
 
-    log.info("Mensagem de %s: %s", numero, texto[:80])
-    threading.Thread(target=processar, args=(numero, texto), daemon=True).start()
+        log.info("Mensagem de %s: %s", numero, texto[:80])
+        _pool.submit(processar, numero, texto)
+    except Exception:  # noqa: BLE001
+        log.exception("Falha no webhook")
 
 
 @asynccontextmanager
@@ -140,6 +161,7 @@ async def lifespan(_app: FastAPI):
         log.exception("Falha ao preparar instância Evolution (vou seguir; webhook pode criar depois)")
     threading.Thread(target=loop_programadas, daemon=True).start()
     yield
+    _pool.shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(title="Agendbarber — Evolution webhook", docs_url=None, redoc_url=None, lifespan=lifespan)
