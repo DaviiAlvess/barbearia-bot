@@ -107,6 +107,12 @@ docker compose up -d
 docker compose logs -f whatsapp   # na primeira vez, para escanear o QR code
 ```
 
+### Na mesma VPS de outro projeto (Ubuntu)
+O bot roda isolado no Docker e tem limite de memória (cerca de 1,6 GB no máximo), então não
+atrapalha outros projetos. O painel só fica acessível pela própria VPS (127.0.0.1); para abrir de fora,
+use o Nginx (`deploy/nginx-painel.conf`) ou um túnel SSH. Para o backup diário do banco, use o
+`deploy/backup.sh` no cron.
+
 ### Opção: API oficial da Meta
 Mais estável, mas exige um app na Meta e um servidor com HTTPS. Preencha `WHATSAPP_TOKEN`,
 `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_VERIFY_TOKEN`, rode `uvicorn whatsapp:app --port 8000`

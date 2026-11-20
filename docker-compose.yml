@@ -1,5 +1,7 @@
 # Sobe tudo com: docker compose up -d
 # Para ver o QR code na primeira vez: docker compose logs -f whatsapp
+# Os limites de memória (mem_limit) protegem outros projetos que rodam na mesma VPS.
+name: barbearia-bot
 services:
   whatsapp:
     build: ./servidor-whatsapp
@@ -8,6 +10,8 @@ services:
       - ID_SESSAO=${ID_SESSAO:-8113}
     volumes:
       - sessao-whatsapp:/app/.wwebjs_auth   # guarda o login (não precisa ler o QR de novo)
+    mem_limit: 1g
+    shm_size: 256m   # o Chromium precisa de memória compartilhada
 
   bot:
     build: .
@@ -19,6 +23,7 @@ services:
       - dados:/app/dados
     depends_on:
       - whatsapp
+    mem_limit: 384m
 
   painel:
     build: .
@@ -26,9 +31,11 @@ services:
     command: uvicorn painel:app --host 0.0.0.0 --port 8080
     env_file: .env
     ports:
-      - "8080:8080"
+      # só a própria VPS acessa; use Nginx (subdomínio) ou túnel SSH para abrir de fora
+      - "127.0.0.1:${PAINEL_PORTA:-8080}:8080"
     volumes:
       - dados:/app/dados
+    mem_limit: 256m
 
 volumes:
   sessao-whatsapp:
