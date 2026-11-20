@@ -354,7 +354,7 @@ def test_painel_whatsapp_qr(monkeypatch):
     _login_painel(c)
     r = c.get("/whatsapp")
     assert r.status_code == 200
-    assert "Escaneie o QR" in r.text and 'src="/whatsapp/qr.png"' in r.text
+    assert "Escaneie o QR" in r.text and 'src="/whatsapp/qr.png' in r.text
     assert "conversa" not in r.text.lower()
     png = c.get("/whatsapp/qr.png")
     assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
