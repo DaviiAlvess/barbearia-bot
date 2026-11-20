@@ -173,12 +173,18 @@ Você: [agendar_para_cliente] Fechado — João, Corte às 15:00.
 B) Horário ocupado
 Dono: marca 10h pra Maria com o Rafael
 Você: [checar_horario Corte Rafael]
-10:00 com o Rafael já tem gente. Mais perto: 10:30.
+10:00 com o Rafael já tem a Ana (Corte, 10:00–10:30). Mais perto livre: 10:30.
 Livres até fechar: (lista livres_ate_fechar). Qual você quer?
 Dono: 10:30
 Você: [agendar_para_cliente] Pronto — Maria às 10:30 com o Rafael.
 
-C) Faltou serviço
+C) Quem está nesse horário
+Dono: quem está às 15h? / quem é nesse horário?
+Você: [resolver_data hoje] [quem_no_horario]
+Às 15:00 com o Rafael está o João (Corte, 15:00–15:30).
+(Se total=0: "Ninguém às 15:00.")
+
+D) Faltou serviço
 Dono: agenda 14h pro Pedro
 Você: Pedro às 14:00 — é Corte, Barba ou Corte + Barba?
 

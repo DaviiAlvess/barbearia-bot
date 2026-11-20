@@ -203,16 +203,19 @@ def _cabe(inicio, fim, d, ocupados):
 
 def _ocupados_detalhe(con, barbeiro, d: date) -> list[dict]:
     rows = con.execute(
-        """SELECT inicio, fim, servico, nome_cliente FROM agendamentos
+        """SELECT id, inicio, fim, servico, nome_cliente, telefone FROM agendamentos
            WHERE barbeiro = ? AND status = 'confirmado' AND inicio LIKE ?
            ORDER BY inicio""",
         (barbeiro, d.isoformat() + "%"),
     ).fetchall()
     return [
         {
+            "id": r["id"],
             "inicio": r["inicio"][11:16],
             "fim": r["fim"][11:16],
             "servico": r["servico"],
+            "nome_cliente": r["nome_cliente"] or "",
+            "telefone": r["telefone"] or "",
         }
         for r in rows
     ]
@@ -333,8 +336,42 @@ def checar_horario_pedido(data_txt, hora: str, servico, barbeiro=None) -> dict:
         "por_barbeiro": por_barbeiro,
         "regra": (
             "Se livre=true, confirme com o dono e use agendar_para_cliente. "
-            "Se livre=false, fale o mais_proximo e liste livres_ate_fechar; "
+            "Se livre=false, diga QUEM está no horário (ocupado_com.nome_cliente, "
+            "servico, inicio–fim) e ofereça mais_proximo + livres_ate_fechar; "
             "só marque depois que ele aprovar um horário."
+        ),
+    }
+
+
+def quem_no_horario(data_txt, hora: str, barbeiro=None) -> dict:
+    """Quem está marcado naquele horário (pergunta do dono)."""
+    try:
+        hora_norm = datetime.strptime(hora.strip()[:5], "%H:%M").strftime("%H:%M")
+    except ValueError as exc:
+        raise ErroAgenda("Hora inválida, use HH:MM (ex.: 15:00).") from exc
+    d = ler_data(data_txt)
+    pedida = _minutos_hm(hora_norm)
+    barbeiro = achar_barbeiro(barbeiro)
+    equipe = [barbeiro] if barbeiro else barbeiros_do_dia(d) or list(barbeiros().keys())
+    por = {}
+    with db.conexao() as con:
+        for b in equipe:
+            coincidem = []
+            for o in _ocupados_detalhe(con, b, d):
+                ini, fim = _minutos_hm(o["inicio"]), _minutos_hm(o["fim"])
+                if ini <= pedida < fim:
+                    coincidem.append(o)
+            por[b] = coincidem
+    total = sum(len(v) for v in por.values())
+    return {
+        "data": d.isoformat(),
+        "dia_semana": DIAS_SEMANA[d.weekday()],
+        "hora": hora_norm,
+        "total": total,
+        "por_barbeiro": por,
+        "texto": (
+            "Ninguém nesse horário." if total == 0 else
+            "Use nome_cliente/servico/inicio/fim/telefone para responder ao dono."
         ),
     }
 

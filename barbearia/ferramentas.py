@@ -64,8 +64,9 @@ DECLARACOES = [
     {
         "name": "checar_horario",
         "description": "MODO DONO: verifica se um horário pedido está livre na agenda "
-                       "(considerando o serviço). Se estiver ocupado, devolve o mais próximo "
-                       "e a lista de vagos até fechar. Use SEMPRE antes de agendar_para_cliente.",
+                       "(considerando o serviço). Se estiver ocupado, devolve quem está lá "
+                       "(ocupado_com com nome_cliente), o mais próximo e os vagos até fechar. "
+                       "Use SEMPRE antes de agendar_para_cliente.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -75,6 +76,21 @@ DECLARACOES = [
                 "barbeiro": {"type": "string", "description": "Opcional. Nome do profissional"},
             },
             "required": ["data", "hora", "servico"],
+        },
+    },
+    {
+        "name": "quem_no_horario",
+        "description": "MODO DONO: responde 'quem está nesse horário?' / 'quem é às 15h?'. "
+                       "Devolve nome do cliente, serviço, início/fim e telefone se houver. "
+                       "Não invente — só o que a ferramenta retornar.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "AAAA-MM-DD (hoje se o dono não disser)"},
+                "hora": {"type": "string", "description": "HH:MM"},
+                "barbeiro": {"type": "string", "description": "Opcional"},
+            },
+            "required": ["data", "hora"],
         },
     },
     {
@@ -236,6 +252,10 @@ def executar(nome, args, telefone, enviar=None):
         if nome == "checar_horario":
             return agenda.checar_horario_pedido(
                 args.get("data"), args.get("hora"), args.get("servico", ""), args.get("barbeiro"),
+            )
+        if nome == "quem_no_horario":
+            return agenda.quem_no_horario(
+                args.get("data"), args.get("hora"), args.get("barbeiro"),
             )
         if nome == "agendar_para_cliente":
             from barbearia.atendente import _eh_dono

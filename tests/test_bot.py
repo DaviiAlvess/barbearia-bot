@@ -77,6 +77,7 @@ def test_dono_checa_horario_e_agenda_para_cliente(monkeypatch):
     chk = agenda.checar_horario_pedido(SABADO, "10:00", "Corte", "Rafael")
     assert chk["livre"] is False
     info = chk["por_barbeiro"]["Rafael"]
+    assert info["ocupado_com"]["nome_cliente"] == "Ana"
     assert info["mais_proximo"] in info["livres_ate_fechar"]
     assert "10:00" not in info["livres_ate_fechar"]
     assert "10:30" in info["livres_ate_fechar"]
@@ -101,6 +102,14 @@ def test_dono_checa_horario_e_agenda_para_cliente(monkeypatch):
 
     txt = persona.montar(None, None, True, modo_dono=True)
     assert "MODO DONO" in txt and "checar_horario" in txt
+    assert "quem_no_horario" in txt
+
+    quem = agenda.quem_no_horario(SABADO, "10:00", "Rafael")
+    assert quem["total"] == 1
+    assert quem["por_barbeiro"]["Rafael"][0]["nome_cliente"] == "Ana"
+    assert ferramentas.executar(
+        "quem_no_horario", {"data": SABADO, "hora": "10:00", "barbeiro": "Rafael"}, "dono",
+    )["total"] == 1
 
 
 def test_horarios_livres_desconta_ocupados_e_duraçao():

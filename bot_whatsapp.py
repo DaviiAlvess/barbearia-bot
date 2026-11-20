@@ -36,9 +36,10 @@ _VISTOS_MAX = 2000
 # Pool próprio: não depende de daemon thread solto (morre/trava sem log)
 _pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wa")
 
-# fromMe: só trata marcação/agenda (ou confirmação se já tem conversa do dono)
+# fromMe: marcação/agenda/consulta de quem está no horário
 _FROME_MARCACAO = re.compile(
-    r"\b(marcar|marca|agendar|agenda|hor[aá]rio|reserva|reservar)\b",
+    r"\b(marcar|marca|agendar|agenda|hor[aá]rio|reserva|reservar|"
+    r"quem\s+(est[aá]|e|é)|quem\s+[eé]\s+|o\s+que\s+tem)\b",
     re.IGNORECASE,
 )
 _FROME_CURTO = re.compile(
