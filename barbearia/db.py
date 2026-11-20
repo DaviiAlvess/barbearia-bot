@@ -381,10 +381,7 @@ def listar_barbeiros() -> dict[str, dict[str, Any]]:
 def salvar_barbeiros(barbeiros: dict[str, dict] | list[dict]) -> None:
     """Persiste a equipe. Aceita dict ou lista de {nome, especialidade, folgas}."""
     normalizado: dict[str, dict] = {}
-    if isinstance(barbeiros, dict):
-        pares = barbeiros.items()
-    else:
-        pares = ((b.get("nome"), b) for b in barbeiros)
+    pares = barbeiros.items() if isinstance(barbeiros, dict) else ((b.get("nome"), b) for b in barbeiros)
     for nome, val in pares:
         nome = (str(nome) if nome is not None else "").strip()[:60]
         if not nome:

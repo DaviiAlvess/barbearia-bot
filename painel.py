@@ -430,10 +430,8 @@ async def salvar_profissionais_painel(request: Request):
         vals = form.getlist(f"folga_{i}")
         folgas = []
         for v in vals:
-            try:
+            with contextlib.suppress(ValueError):
                 folgas.append(int(v))
-            except ValueError:
-                pass
         itens.append({"nome": nome[:60], "especialidade": (esp or "").strip()[:80], "folgas": folgas})
     try:
         db.salvar_barbeiros(itens)
