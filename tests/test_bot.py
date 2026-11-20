@@ -298,7 +298,7 @@ def test_painel(monkeypatch):
     # sem login: redireciona para página HTML (não JSON)
     r = c.get("/", follow_redirects=False)
     assert r.status_code == 303 and "/login" in r.headers["location"]
-    assert "Entrar" in c.get("/login").text
+    assert "Entrar" in c.get("/login").text and "Senha" in c.get("/login").text
     assert c.post("/login", data={"senha": "errada", "next": "/"}).status_code == 200
     assert "Senha incorreta" in c.post("/login", data={"senha": "errada", "next": "/"}).text
     _login_painel(c)
@@ -342,7 +342,7 @@ def test_painel_whatsapp_qr(monkeypatch):
     _login_painel(c)
     r = c.get("/whatsapp")
     assert r.status_code == 200
-    assert "Escaneie o QR" in r.text and "/whatsapp/qr.png" in r.text
+    assert "Escaneie o QR" in r.text and 'src="/whatsapp/qr.png"' in r.text
     assert "conversa" not in r.text.lower()
     png = c.get("/whatsapp/qr.png")
     assert png.status_code == 200 and png.content.startswith(b"\x89PNG")

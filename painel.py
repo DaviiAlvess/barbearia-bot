@@ -38,22 +38,92 @@ class PrecisaLogin(Exception):
 
 e = html.escape  # nunca colocar texto do cliente no HTML sem escapar
 
+# Tipografia: Cormorant (marca) + Manrope (UI). Paleta navalha: carvão + ouro.
 ESTILO = """
-body{font-family:system-ui,sans-serif;margin:0;background:#f6f4f1;color:#222}
-header{background:#1d1b19;color:#f2c14e;padding:14px 20px;font-size:20px;font-weight:600}
-main{max-width:960px;margin:auto;padding:16px}
-.card{background:#fff;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px #0001}
-table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #eee;text-align:left}
-th{font-size:13px;color:#666}.nav a{margin-right:12px;color:#1d1b19}
-button{background:#1d1b19;color:#fff;border:0;border-radius:6px;padding:10px 16px;cursor:pointer;font-size:16px}
-button.perigo{background:#b3261e}
-input,select{padding:10px;border:1px solid #ccc;border-radius:6px;font-size:16px;
-width:100%;box-sizing:border-box;margin:6px 0 12px}
-.total{font-size:18px;font-weight:600}.vazio{color:#888}
-.ok{color:#1a7f37;font-weight:600}.aviso{color:#9a6700}.erro{color:#b3261e}
-.qr{display:block;margin:16px auto;max-width:360px;width:100%;background:#fff;border:1px solid #eee;border-radius:8px}
-.passos{line-height:1.6}.login-box{max-width:360px;margin:40px auto}
-label{font-size:14px;color:#555}.sair{float:right;font-size:14px;color:#f2c14e;text-decoration:none}
+:root{
+  --ink:#141210;--paper:#f3eee6;--panel:#fffcf7;--line:#e4dcd0;
+  --gold:#c9a227;--gold-soft:#f0e2b0;--muted:#6f675c;--danger:#a33b32;--ok:#2f6b45;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;color:var(--ink);
+  font-family:"Manrope",system-ui,sans-serif;
+  background:
+    radial-gradient(900px 420px at 10% -10%,#efe6d4 0%,transparent 55%),
+    radial-gradient(700px 380px at 100% 0%,#e8dfc8 0%,transparent 50%),
+    var(--paper);
+  min-height:100vh;
+}
+header{
+  background:linear-gradient(180deg,#1a1714 0%,#12100e 100%);
+  color:var(--gold-soft);padding:18px 20px 16px;
+  border-bottom:1px solid #2a2621;
+}
+header .brand{
+  font-family:"Cormorant Garamond",Georgia,serif;
+  font-size:clamp(1.45rem,4vw,1.85rem);font-weight:600;letter-spacing:.02em;margin:0;
+}
+header .sub{margin:4px 0 0;font-size:.78rem;color:#9a9184;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+main{max-width:920px;margin:0 auto;padding:18px 16px 40px}
+.nav{
+  display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  padding:10px 4px 14px;margin:0 0 8px;scrollbar-width:none;
+}
+.nav::-webkit-scrollbar{display:none}
+.nav a{
+  flex:0 0 auto;text-decoration:none;color:var(--ink);font-size:.9rem;font-weight:600;
+  padding:8px 12px;border:1px solid transparent;border-radius:999px;white-space:nowrap;
+}
+.nav a:hover{background:#ebe4d8}
+.nav a.sair{margin-left:auto;color:var(--muted);font-weight:500}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:18px;margin-bottom:14px;
+}
+.card h2,.card h3{
+  font-family:"Cormorant Garamond",Georgia,serif;font-weight:600;margin:0 0 12px;
+  font-size:1.45rem;letter-spacing:.01em;
+}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px}
+.toolbar a{color:var(--ink);text-decoration:none;font-size:1.2rem;padding:4px 8px}
+.toolbar b{font-size:1rem}
+.toolbar form{display:flex;gap:8px;align-items:center;margin:0}
+.toolbar input[type=date]{width:auto;margin:0;padding:8px 10px}
+table{width:100%;border-collapse:collapse}
+td,th{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
+td small{color:var(--muted)}
+button{
+  background:var(--ink);color:#f7f1e6;border:0;border-radius:10px;
+  padding:10px 16px;cursor:pointer;font:600 .95rem "Manrope",system-ui,sans-serif;
+}
+button:hover{filter:brightness(1.08)}
+button.perigo{background:var(--danger);padding:8px 12px;font-size:.85rem}
+button.largo{width:100%}
+input,select{
+  padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+  font:500 1rem "Manrope",system-ui,sans-serif;width:100%;margin:6px 0 12px;
+  background:#fff;color:var(--ink);
+}
+label{font-size:.82rem;font-weight:650;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.total{font-size:1.05rem;font-weight:700;margin:4px 0 12px}
+.vazio{color:var(--muted)}.ok{color:var(--ok);font-weight:700}
+.aviso{color:#8a6a1f}.erro{color:var(--danger);font-weight:600}
+.qr{
+  display:block;margin:18px auto;max-width:300px;width:100%;
+  background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;
+}
+.passos{line-height:1.65;padding-left:1.2rem;color:#3a342c}
+.login-wrap{min-height:70vh;display:grid;place-items:center;padding:12px}
+.login-box{width:100%;max-width:380px;margin:0}
+.login-box .hint{margin:14px 0 0;font-size:.85rem;color:var(--muted);line-height:1.45}
+.form-row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.form-row > *{flex:1 1 140px;margin:0}
+.form-row button{flex:0 0 auto;margin-bottom:12px}
+@media(max-width:560px){
+  td,th{padding:8px 6px;font-size:.9rem}
+  .card{padding:14px}
+}
 """
 
 
@@ -105,14 +175,23 @@ def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool 
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
     nav = ""
     if logado:
-        nav = """<div class="nav card"><a href="/">Agenda</a><a href="/bloqueios">Folgas e feriados</a>
-<a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp / QR</a>
-<a href="/sair" style="float:right">Sair</a></div>"""
+        nav = """<nav class="nav" aria-label="Principal">
+<a href="/">Agenda</a><a href="/bloqueios">Folgas</a>
+<a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp</a>
+<a class="sair" href="/sair">Sair</a></nav>"""
     return HTMLResponse(f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">{meta}
-<title>{e(titulo)}</title>
-<style>{ESTILO}</style></head><body><header>💈 {e(config.NOME_BARBEARIA)}</header><main>
-{nav}{corpo}</main></body></html>""")
+<title>{e(titulo)} · {e(config.NOME_BARBEARIA)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&amp;family=Manrope:wght@500;600;700&amp;display=swap"
+ rel="stylesheet">
+<style>{ESTILO}</style></head><body>
+<header>
+  <p class="brand">{e(config.NOME_BARBEARIA)}</p>
+  <p class="sub">Painel do dono</p>
+</header>
+<main>{nav}{corpo}</main></body></html>""")
 
 
 def _status_whatsapp() -> dict:
@@ -125,33 +204,31 @@ def _status_whatsapp() -> dict:
         return {"conectado": False, "temQr": False, "erro": str(exc)}
 
 
-@app.get("/login")
-def login_form(next: str = "/"):
-    corpo = f"""<div class="card login-box"><h2>Entrar no painel</h2>
+def _corpo_login(next: str, erro: str = "") -> str:
+    msg = f'<p class="erro">{e(erro)}</p>' if erro else ""
+    return f"""<div class="login-wrap"><div class="card login-box">
+    <h2>Entrar</h2>
+    {msg}
     <form method=post action=/login>
     <input type=hidden name=next value="{e(next)}">
-    <label>Senha</label>
-    <input type=password name=senha required autocomplete=current-password autofocus>
-    <button type=submit style="width:100%">Entrar</button>
+    <label for=senha>Senha</label>
+    <input id=senha type=password name=senha required autocomplete=current-password autofocus>
+    <button class="largo" type=submit>Entrar</button>
     </form>
-    <p class=vazio>Painel da {e(config.NOME_BARBEARIA)} — separado do Condo Organize.</p>
-    </div>"""
-    return pagina("Entrar", corpo, logado=False)
+    <p class="hint">Acesso só da barbearia — independente do Condo Organize.</p>
+    </div></div>"""
+
+
+@app.get("/login")
+def login_form(next: str = "/"):
+    return pagina("Entrar", _corpo_login(next), logado=False)
 
 
 @app.post("/login")
 def login_post(request: Request, senha: str = Form(...), next: str = Form("/")):
     esperada = os.getenv("PAINEL_SENHA") or ""
     if not esperada or not secrets.compare_digest(senha, esperada):
-        corpo = f"""<div class="card login-box"><h2>Entrar no painel</h2>
-        <p class=erro>Senha incorreta.</p>
-        <form method=post action=/login>
-        <input type=hidden name=next value="{e(next)}">
-        <label>Senha</label>
-        <input type=password name=senha required autocomplete=current-password autofocus>
-        <button type=submit style="width:100%">Entrar</button>
-        </form></div>"""
-        return pagina("Entrar", corpo, logado=False)
+        return pagina("Entrar", _corpo_login(next, "Senha incorreta."), logado=False)
     destino = next if next.startswith("/") else "/"
     resp = RedirectResponse(destino, status_code=303)
     proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
@@ -183,12 +260,16 @@ def ver_agenda(data: str | None = None):
         f"<input type=hidden name=data value={d.isoformat()}><button class=perigo>Cancelar</button>"
         f"</form></td></tr>" for i in itens)
     anterior, proximo = d - timedelta(days=1), d + timedelta(days=1)
-    corpo = f"""<div class=card><a href="/?data={anterior}">◀</a>
-    <b>{agenda.DIAS_SEMANA[d.weekday()]}, {d.strftime('%d/%m/%Y')}</b> <a href="/?data={proximo}">▶</a>
-    <form style="display:inline;margin-left:12px"><input type=date name=data value="{d}"><button>Ir</button></form>
+    corpo = f"""<div class=card>
+    <div class=toolbar>
+      <a href="/?data={anterior}" aria-label="Dia anterior">‹</a>
+      <b>{agenda.DIAS_SEMANA[d.weekday()]}, {d.strftime('%d/%m/%Y')}</b>
+      <a href="/?data={proximo}" aria-label="Próximo dia">›</a>
+      <form method=get action=/><input type=date name=data value="{d}"><button type=submit>Ir</button></form>
+    </div>
     <p class=total>{len(itens)} atendimentos · R$ {total:.2f}</p>
     {"<table><tr><th>Hora</th><th>Barbeiro</th><th>Serviço</th><th>Cliente</th><th>Valor</th><th></th></tr>"
-     + linhas + "</table>" if itens else "<p class=vazio>Nenhum horário marcado.</p>"}</div>"""
+     + linhas + "</table>" if itens else "<p class=vazio>Nenhum horário marcado neste dia.</p>"}</div>"""
     return pagina("Agenda", corpo)
 
 
@@ -213,11 +294,14 @@ def ver_bloqueios():
         f"<input type=hidden name=barbeiro value=\"{e(r['barbeiro'] or '')}\"><button>Remover</button>"
         f"</form></td></tr>" for r in rows)
     opcoes = "".join(f"<option>{e(b)}</option>" for b in config.BARBEIROS)
-    corpo = f"""<div class=card><h3>Fechar dia ou dar folga</h3><form method=post action=/bloquear>
-    <input type=date name=data required> <select name=barbeiro><option value="">Barbearia toda</option>
-    {opcoes}</select> <input name=motivo placeholder="Motivo (opcional)"> <button>Bloquear</button></form></div>
-    <div class=card><h3>Próximos bloqueios</h3>{"<table>" + linhas + "</table>" if rows
-    else "<p class=vazio>Nenhum.</p>"}</div>"""
+    corpo = f"""<div class=card><h3>Fechar dia ou dar folga</h3>
+    <form method=post action=/bloquear class=form-row>
+    <div><label>Data</label><input type=date name=data required></div>
+    <div><label>Quem</label><select name=barbeiro><option value="">Barbearia toda</option>{opcoes}</select></div>
+    <div><label>Motivo</label><input name=motivo placeholder="Opcional"></div>
+    <button type=submit>Bloquear</button></form></div>
+    <div class=card><h3>Próximos bloqueios</h3>{"<table><tr><th>Data</th><th>Quem</th><th>Motivo</th><th></th></tr>"
+    + linhas + "</table>" if rows else "<p class=vazio>Nenhum bloqueio à frente.</p>"}</div>"""
     return pagina("Folgas e feriados", corpo)
 
 
@@ -274,13 +358,13 @@ def ver_whatsapp():
         return pagina("WhatsApp", corpo, refresh=30)
 
     if st.get("temQr"):
-        corpo = """<div class=card><h3>Escaneie o QR Code</h3>
+        corpo = """<div class=card><h3>Escaneie o QR</h3>
         <ol class=passos>
-          <li>No celular: WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b></li>
-          <li>Aponte a câmera para o código abaixo</li>
+          <li>WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b></li>
+          <li>Aponte a câmera para o código</li>
         </ol>
         <img class=qr src="/whatsapp/qr.png" alt="QR Code do WhatsApp">
-        <p class=vazio>A página atualiza sozinha a cada 5s. O QR muda de tempos em tempos.</p>
+        <p class=vazio>Atualiza sozinho a cada 5s.</p>
         </div>"""
         return pagina("WhatsApp", corpo, refresh=5)
 
