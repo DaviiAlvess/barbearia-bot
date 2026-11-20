@@ -5,6 +5,7 @@ Abrir:  http://localhost:8080  (senha: PAINEL_SENHA do .env)
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import html
@@ -430,8 +431,6 @@ def whatsapp_qr_png():
 
 @app.post("/whatsapp/reiniciar", dependencies=[Depends(autenticar)])
 def whatsapp_reiniciar():
-    try:
+    with contextlib.suppress(requests.RequestException):
         requests.post(f"{SERVIDOR_WHATSAPP}/reiniciar-qr", timeout=60)
-    except requests.RequestException:
-        pass
     return RedirectResponse("/whatsapp", status_code=303)
