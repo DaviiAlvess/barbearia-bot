@@ -36,8 +36,9 @@ services:
       # para a página /whatsapp buscar o QR no container do Node
       - SERVIDOR_WHATSAPP=http://whatsapp:3000
     ports:
-      # só a própria VPS acessa; use Nginx (subdomínio) ou túnel SSH para abrir de fora
-      - "127.0.0.1:${PAINEL_PORTA:-8080}:8080"
+      # Porta do painel na VPS (padrão 8080; na VPS compartilhada use 8090 no .env).
+      # Separado do Condo: não passa pelo Caddy dele. Protegido por senha (PAINEL_SENHA).
+      - "${PAINEL_PORTA:-8080}:8080"
     volumes:
       - dados:/app/dados
     depends_on:
