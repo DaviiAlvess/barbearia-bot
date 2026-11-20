@@ -288,6 +288,12 @@ def _login_painel(client, senha="s3nha"):
     return client
 
 
+def test_nome_salao_painel_e_banco():
+    assert db.nome_salao() == "Meu Salão"
+    db.salvar_config("nome_salao", "Barbearia Teste")
+    assert db.nome_salao() == "Barbearia Teste"
+
+
 def test_painel(monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -302,9 +308,15 @@ def test_painel(monkeypatch):
     assert c.post("/login", data={"senha": "errada", "next": "/"}).status_code == 200
     assert "Senha incorreta" in c.post("/login", data={"senha": "errada", "next": "/"}).text
     _login_painel(c)
+    assert "Agendbarber" in c.get("/login").text or "Agendbarber" in c.get("/").text
     r = c.get(f"/?data={SABADO}")
     assert r.status_code == 200 and "R$ 35.00" in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
+    # nome do salão pelo painel
+    assert c.get("/salao").status_code == 200 and "Nome do salão" in c.get("/salao").text
+    r = c.post("/salao", data={"nome": "Navalha & Cia"}, follow_redirects=False)
+    assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
+    assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
     r = c.post("/bloquear", data={"data": QUARTA, "barbeiro": "", "motivo": "Feriado"},
                follow_redirects=False)
     assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]

@@ -1,4 +1,4 @@
-"""Painel web do dono: agenda, bloqueios, avaliações e QR do WhatsApp.
+"""Painel web Agendbarber: agenda, salão, QR do WhatsApp.
 
 Rodar:  uvicorn painel:app --port 8080
 Abrir:  http://localhost:8080  (senha: PAINEL_SENHA do .env)
@@ -24,7 +24,7 @@ load_dotenv()
 import config  # noqa: E402
 from barbearia import agenda, db  # noqa: E402
 
-app = FastAPI(title=f"Painel - {config.NOME_BARBEARIA}", docs_url=None, redoc_url=None)
+app = FastAPI(title=f"{config.NOME_APP} — Painel", docs_url=None, redoc_url=None)
 db.criar_tabelas()
 
 SERVIDOR_WHATSAPP = os.getenv("SERVIDOR_WHATSAPP", "http://localhost:3000").rstrip("/")
@@ -178,18 +178,20 @@ def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool 
         nav = """<nav class="nav" aria-label="Principal">
 <a href="/">Agenda</a><a href="/bloqueios">Folgas</a>
 <a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp</a>
+<a href="/salao">Salão</a>
 <a class="sair" href="/sair">Sair</a></nav>"""
+    salao = db.nome_salao()
     return HTMLResponse(f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">{meta}
-<title>{e(titulo)} · {e(config.NOME_BARBEARIA)}</title>
+<title>{e(titulo)} · {e(config.NOME_APP)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&amp;family=Manrope:wght@500;600;700&amp;display=swap"
  rel="stylesheet">
 <style>{ESTILO}</style></head><body>
 <header>
-  <p class="brand">{e(config.NOME_BARBEARIA)}</p>
-  <p class="sub">Painel do dono</p>
+  <p class="brand">{e(config.NOME_APP)}</p>
+  <p class="sub">{e(salao)}</p>
 </header>
 <main>{nav}{corpo}</main></body></html>""")
 
@@ -215,7 +217,7 @@ def _corpo_login(next: str, erro: str = "") -> str:
     <input id=senha type=password name=senha required autocomplete=current-password autofocus>
     <button class="largo" type=submit>Entrar</button>
     </form>
-    <p class="hint">Acesso só da barbearia — independente do Condo Organize.</p>
+    <p class="hint">{e(config.NOME_APP)} — painel do salão.</p>
     </div></div>"""
 
 
@@ -270,6 +272,11 @@ def ver_agenda(data: str | None = None):
     <p class=total>{len(itens)} atendimentos · R$ {total:.2f}</p>
     {"<table><tr><th>Hora</th><th>Barbeiro</th><th>Serviço</th><th>Cliente</th><th>Valor</th><th></th></tr>"
      + linhas + "</table>" if itens else "<p class=vazio>Nenhum horário marcado neste dia.</p>"}</div>"""
+    if db.nome_salao() in ("Meu Salão", ""):
+        corpo = (
+            '<div class="card"><p class="aviso">Defina o nome do seu salão em '
+            '<a href="/salao"><b>Salão</b></a>.</p></div>' + corpo
+        )
     return pagina("Agenda", corpo)
 
 
@@ -321,6 +328,34 @@ def bloquear(data: str = Form(...), barbeiro: str = Form(""), motivo: str = Form
 def desbloquear(data: str = Form(...), barbeiro: str = Form("")):
     agenda.desbloquear(data, barbeiro or None)
     return RedirectResponse("/bloqueios", status_code=303)
+
+
+@app.get("/salao", dependencies=[Depends(autenticar)])
+def ver_salao(ok: str | None = None):
+    nome = db.nome_salao()
+    msg = '<p class="ok">Nome do salão salvo.</p>' if ok else ""
+    corpo = f"""<div class=card>
+    <h2>Seu salão</h2>
+    <p class=vazio>Este nome aparece no painel e nas conversas do WhatsApp (o app continua sendo
+    {e(config.NOME_APP)}).</p>
+    {msg}
+    <form method=post action=/salao>
+      <label for=nome>Nome do salão</label>
+      <input id=nome name=nome maxlength=80 required value="{e(nome)}"
+       placeholder="Ex.: Barbearia Navalha de Ouro">
+      <button type=submit>Salvar</button>
+    </form>
+    </div>"""
+    return pagina("Salão", corpo)
+
+
+@app.post("/salao", dependencies=[Depends(autenticar)])
+def salvar_salao(nome: str = Form(...)):
+    nome = (nome or "").strip()[:80]
+    if not nome:
+        return RedirectResponse("/salao", status_code=303)
+    db.salvar_config("nome_salao", nome)
+    return RedirectResponse("/salao?ok=1", status_code=303)
 
 
 @app.get("/avaliacoes", dependencies=[Depends(autenticar)])

@@ -3,7 +3,6 @@ em vez de inventar horário ou preço."""
 import os
 import time
 
-import config
 from barbearia import agenda, db
 
 PAUSA_HUMANO_HORAS = 2
@@ -210,7 +209,7 @@ def executar(nome, args, telefone, enviar=None):
             db.pausar_bot(telefone, time.time() + PAUSA_HUMANO_HORAS * 3600)
             dono = os.getenv("TELEFONE_DONO")
             if enviar and dono:
-                enviar(dono, f"🔔 {config.NOME_BARBEARIA}: cliente {telefone} precisa de atendimento. "
+                enviar(dono, f"🔔 {db.nome_salao()}: cliente {telefone} precisa de atendimento. "
                             f"Motivo: {args.get('motivo')}")
             return {"ok": True, "info": "Um atendente vai assumir. Avise o cliente de forma natural."}
         return {"erro": f"Ferramenta desconhecida: {nome}"}

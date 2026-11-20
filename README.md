@@ -1,8 +1,8 @@
-# 💈 Barbearia Bot
+# Agendbarber
 
-Atendente de barbearia no WhatsApp com IA (Google Gemini), feito a partir do **Bella Bot**
-(branch `belinhafuncional` de github.com/davialvs908/ChatBot-bellabot). O atendimento é mais
-humano, educado e completo.
+Atendente de barbearia no WhatsApp com IA (Google Gemini). O app se chama **Agendbarber**;
+o nome do seu salão você define no painel (**Salão**). Feito a partir do Bella Bot
+(branch `belinhafuncional`). O atendimento é mais humano, educado e completo.
 
 ![testes](https://github.com/DaviiAlvess/barbearia-bot/actions/workflows/testes.yml/badge.svg)
 
