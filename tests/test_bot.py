@@ -178,7 +178,7 @@ def test_cliente_que_volta_e_reconhecido():
     db.salvar_cliente(TEL, nome="Marcos", barbeiro_preferido="Diego", observacoes="degradê na 1")
     txt = persona.montar(db.obter_cliente(TEL), None, True)
     assert "Marcos" in txt and "Diego" in txt and "degradê na 1" in txt
-    assert "2026-11-21" in txt and "sábado 21/11" in txt
+    assert "2026-11-21" in txt and "sábado = 2026-11-21" in txt
 
 
 def test_primeiro_contato_pede_e_salva_nome():
@@ -226,8 +226,23 @@ def test_ia_fora_do_ar_responde_humano():
             from barbearia.ia import ErroIA
             raise ErroIA("503")
     bot = Atendente(Quebrada())
-    assert bot.responder(TEL, "oi")[0] in humanizar.SEM_IA
+    r = bot.responder(TEL, "oi")[0]
+    assert r in humanizar.SEM_IA
+    assert "sistema" not in r.lower() and "internet" not in r.lower() and "trav" not in r.lower()
     assert db.carregar_conversa(TEL)[0] == []
+
+
+def test_guardrails_bloqueia_sistema_e_servico_fantasma():
+    from barbearia import guardrails
+    assert "sistema" not in guardrails.sanitizar_resposta(
+        "Opa, meu sistema deu uma travada aqui").lower() or "confusão" in guardrails.sanitizar_resposta(
+        "Opa, meu sistema deu uma travada aqui")
+    s = guardrails.sanitizar_resposta("Temos progressiva e botox capilar sim!")
+    assert "progressiva" not in s.lower() or "tem estes" in s.lower()
+    assert "Corte" in guardrails.sanitizar_resposta("Corte fica R$ 35")
+    txt = persona.montar(None, None, True)
+    assert "PROIBIDO" in txt and "FLUXO DE AGENDAMENTO" in txt
+    assert "NÃO invente serviço" in txt or "NÃO invente" in txt
 
 
 def test_baloes():

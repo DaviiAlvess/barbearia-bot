@@ -12,7 +12,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import timedelta
 
-from barbearia import agenda, db, ferramentas, humanizar, persona
+from barbearia import agenda, db, ferramentas, guardrails, humanizar, persona
 from barbearia.ia import ErroIA
 
 log = logging.getLogger(__name__)
@@ -167,7 +167,8 @@ class Atendente:
                          for h in hist[inicio_turno:] for p in h["parts"])
             if not apagou:  # se o cliente pediu para apagar os dados, não guarda nem a conversa
                 db.salvar_conversa(telefone, _cortar_historico(hist), agora)
-            return humanizar.em_baloes(resposta) or ["Desculpa, não entendi bem. Pode me explicar de novo?"]
+            limpa = guardrails.sanitizar_resposta(resposta)
+            return humanizar.em_baloes(limpa) or ["Desculpa, não entendi bem. Pode me explicar de novo?"]
         finally:
             trava.release()
 

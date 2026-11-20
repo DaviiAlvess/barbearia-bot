@@ -43,15 +43,16 @@ DECLARACOES = [
     },
     {
         "name": "agendar",
-        "description": "Marca o horário. Só chame depois que o cliente confirmou dia, hora e serviço "
-                       "e você já sabe o nome dele.",
+        "description": "Marca o horário. Só chame DEPOIS de: (1) ter o nome, (2) serviço da tabela, "
+                       "(3) data via resolver_data, (4) horários via ver_horarios_livres, "
+                       "(5) cliente confirmou com 'sim'. A data deve ser AAAA-MM-DD.",
         "parameters": {
             "type": "object",
             "properties": {
                 "nome_cliente": {"type": "string"},
-                "data": {"type": "string", "description": "AAAA-MM-DD"},
-                "hora": {"type": "string", "description": "HH:MM"},
-                "servico": {"type": "string"},
+                "data": {"type": "string", "description": "AAAA-MM-DD (de resolver_data)"},
+                "hora": {"type": "string", "description": "HH:MM (deve estar em ver_horarios_livres)"},
+                "servico": {"type": "string", "description": "Nome EXATO da tabela de serviços"},
                 "barbeiro": {"type": "string", "description": "Opcional. Se vazio, pega quem estiver livre"},
             },
             "required": ["nome_cliente", "data", "hora", "servico"],
@@ -103,8 +104,8 @@ DECLARACOES = [
     },
     {
         "name": "ver_tabela_servicos",
-        "description": "Lista os serviços oferecidos com preço e duração. "
-                       "Use quando o cliente perguntar valores, o que tem, ou a tabela de preços.",
+        "description": "ÚNICA fonte de serviços/preços. Use antes de citar qualquer serviço. "
+                       "Nunca invente item que não venha nesta resposta.",
         "parameters": {"type": "object", "properties": {}},
     },
     {

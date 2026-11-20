@@ -32,7 +32,8 @@ def _modelo_sugerido(erro: str) -> str | None:
 
 
 class Gemini:
-    def __init__(self, api_key=None, modelo=None, temperatura=0.8):
+    def __init__(self, api_key=None, modelo=None, temperatura=0.4):
+        # Temperatura baixa: menos alucinação de serviço/data/horário
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ErroIA("Configure GEMINI_API_KEY no arquivo .env")
