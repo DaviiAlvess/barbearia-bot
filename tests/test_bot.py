@@ -324,31 +324,19 @@ def test_painel(monkeypatch):
 
 
 def test_painel_whatsapp_qr(monkeypatch):
-    """Página do QR: autentica, mostra status e faz proxy do PNG — sem conversas."""
+    """Página do QR: autentica, mostra status e PNG da Evolution — sem conversas."""
     from fastapi.testclient import TestClient
 
     import painel
+    from barbearia import evolution as evo
 
     monkeypatch.setenv("PAINEL_SENHA", "s3nha")
-    monkeypatch.setattr(painel, "SERVIDOR_WHATSAPP", "http://whatsapp-fake")
+    monkeypatch.setattr(
+        evo, "status_para_painel",
+        lambda: {"conectado": False, "temQr": True, "idadeQrSegundos": 2},
+    )
+    monkeypatch.setattr(evo, "qr_png_bytes", lambda: b"\x89PNG\r\n\x1a\nfake")
 
-    class FakeResp:
-        def __init__(self, status_code=200, payload=None, content=b""):
-            self.status_code = status_code
-            self._payload = payload or {}
-            self.content = content
-
-        def json(self):
-            return self._payload
-
-    def fake_get(url, timeout=3):
-        if url.endswith("/status"):
-            return FakeResp(200, {"conectado": False, "temQr": True, "idSessao": "8113"})
-        if url.endswith("/qr.png"):
-            return FakeResp(200, content=b"\x89PNG\r\n\x1a\nfake")
-        raise AssertionError(url)
-
-    monkeypatch.setattr(painel.requests, "get", fake_get)
     c = TestClient(painel.app)
     assert c.get("/whatsapp", follow_redirects=False).status_code == 303
     _login_painel(c)
@@ -359,9 +347,18 @@ def test_painel_whatsapp_qr(monkeypatch):
     png = c.get("/whatsapp/qr.png")
     assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
 
-    def fake_conectado(url, timeout=3):
-        return FakeResp(200, {"conectado": True, "temQr": False, "idSessao": "8113"})
-
-    monkeypatch.setattr(painel.requests, "get", fake_conectado)
+    monkeypatch.setattr(
+        evo, "status_para_painel",
+        lambda: {"conectado": True, "temQr": False},
+    )
     r = c.get("/whatsapp")
     assert r.status_code == 200 and "Conectado" in r.text
+
+
+def test_evolution_extrair_mensagem():
+    from barbearia import evolution as evo
+
+    assert evo.extrair_telefone("5511999999999@s.whatsapp.net") == "5511999999999"
+    assert evo.extrair_telefone("120363@g.us") is None
+    assert evo.extrair_texto_mensagem({"conversation": " oi "}) == "oi"
+    assert "áudio" in (evo.extrair_texto_mensagem({"audioMessage": {}}, "audioMessage") or "")

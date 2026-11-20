@@ -15,7 +15,6 @@ import time
 from datetime import timedelta
 from urllib.parse import quote
 
-import requests
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -24,11 +23,11 @@ load_dotenv()
 
 import config  # noqa: E402
 from barbearia import agenda, db  # noqa: E402
+from barbearia import evolution as evo  # noqa: E402
 
 app = FastAPI(title=f"{config.NOME_APP} — Painel", docs_url=None, redoc_url=None)
 db.criar_tabelas()
 
-SERVIDOR_WHATSAPP = os.getenv("SERVIDOR_WHATSAPP", "http://localhost:3000").rstrip("/")
 COOKIE_SESSAO = "painel_sessao"
 SESSAO_DIAS = 7
 
@@ -199,11 +198,8 @@ def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool 
 
 def _status_whatsapp() -> dict:
     try:
-        r = requests.get(f"{SERVIDOR_WHATSAPP}/status", timeout=3)
-        if r.status_code == 200:
-            return r.json()
-        return {"conectado": False, "temQr": False, "erro": f"HTTP {r.status_code}"}
-    except requests.RequestException as exc:
+        return evo.status_para_painel()
+    except Exception as exc:  # noqa: BLE001
         return {"conectado": False, "temQr": False, "erro": str(exc)}
 
 
@@ -380,9 +376,9 @@ def ver_whatsapp():
     st = _status_whatsapp()
     if st.get("erro") and not st.get("conectado") and not st.get("temQr"):
         corpo = f"""<div class=card><h3>WhatsApp</h3>
-        <p class=aviso>Não consegui falar com o servidor do WhatsApp.</p>
+        <p class=aviso>Não consegui falar com a Evolution API.</p>
         <p class=vazio>{e(st['erro'])}</p>
-        <p>Confira se o container <code>whatsapp</code> está no ar.</p>
+        <p>Confira se o container <code>evolution</code> está no ar.</p>
         <p><a href="/whatsapp">Tentar de novo</a></p></div>"""
         return pagina("WhatsApp", corpo, refresh=8)
 
@@ -410,27 +406,26 @@ def ver_whatsapp():
         return pagina("WhatsApp", corpo, refresh=4)
 
     corpo = """<div class=card><h3>WhatsApp</h3>
-    <p class=aviso>Aguardando o QR… o Chromium ainda está iniciando.</p>
-    <p><a href="/whatsapp">Atualizar</a></p></div>"""
+    <p class=aviso>Aguardando o QR… a Evolution ainda está gerando.</p>
+    <p><a href="/whatsapp">Atualizar</a> ·
+    <form method=post action=/whatsapp/reiniciar style="display:inline">
+    <button type=submit>Gerar QR novo</button></form></p></div>"""
     return pagina("WhatsApp", corpo, refresh=5)
 
 
 @app.get("/whatsapp/qr.png", dependencies=[Depends(autenticar)])
 def whatsapp_qr_png():
-    try:
-        r = requests.get(f"{SERVIDOR_WHATSAPP}/qr.png", timeout=5)
-    except requests.RequestException as exc:
-        raise HTTPException(502, f"Servidor WhatsApp inacessível: {exc}") from exc
-    if r.status_code != 200:
+    png = evo.qr_png_bytes()
+    if not png:
         raise HTTPException(404, "Sem QR no momento")
     return Response(
-        content=r.content, media_type="image/png",
+        content=png, media_type="image/png",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
     )
 
 
 @app.post("/whatsapp/reiniciar", dependencies=[Depends(autenticar)])
 def whatsapp_reiniciar():
-    with contextlib.suppress(requests.RequestException):
-        requests.post(f"{SERVIDOR_WHATSAPP}/reiniciar-qr", timeout=60)
+    with contextlib.suppress(Exception):
+        evo.reiniciar_qr()
     return RedirectResponse("/whatsapp", status_code=303)

@@ -13,7 +13,7 @@ próprios, painel só por túnel SSH (não mexe no Nginx do outro projeto).
 | Código | `~/barbearia-bot` | pasta dele |
 | Banco | volume Docker + SQLite próprios | banco dele |
 | Rede | bridge interna do compose | rede dele |
-| Memória | teto ~1,6 GB (`mem_limit`) | independente |
+| Memória | teto ~1,4 GB (`mem_limit`) | independente |
 | Painel web | `127.0.0.1:8080` via túnel SSH | Nginx dele intacto |
 
 O que **não** separa: se a VPS inteira cair, os dois param. Isolamento total = outra VPS.
@@ -50,12 +50,15 @@ bash ~/barbearia-bot/deploy/instalar-bot.sh
 
 ### 3. Conectar o WhatsApp (QR)
 
+No `.env`, defina uma `EVOLUTION_API_KEY` longa (e a mesma chave que a
+Evolution usa). Depois abra o painel → **WhatsApp** e escaneie o QR.
+
 ```bash
 cd ~/barbearia-bot
-docker compose logs -f whatsapp
+docker compose logs -f evolution   # opcional, se quiser ver o boot da API
 ```
 
-No celular: WhatsApp → Aparelhos conectados → escanear o QR.
+No celular: WhatsApp → Aparelhos conectados → escanear o QR da página `/whatsapp`.
 
 ### 4. Abrir o painel na web
 
@@ -103,7 +106,7 @@ docker compose pull && docker compose up -d --build   # atualizar
 |---|---|
 | `Cannot connect to the Docker daemon` | `systemctl --user status docker` e `echo $DOCKER_HOST` |
 | `mem_limit` ignorado | `/etc/systemd/system/user@.service.d/delegate.conf` + `daemon-reload` |
-| Chromium / QR não sobe | `docker compose logs whatsapp` (já usa `--no-sandbox`) |
+| Evolution / QR não sobe | `docker compose logs evolution` e confira `EVOLUTION_API_KEY` no `.env` |
 | Painel inacessível de fora | esperado — use o túnel SSH |
 | Containers param ao sair do SSH | `loginctl show-user barbearia \| grep Linger` deve ser `yes` |
 | `rootlesskit: permission denied` (AppArmor) | o `setup-rootless.sh` já cria o perfil; se falhou no meio, rode de novo ou veja o hint do instalador |

@@ -26,10 +26,10 @@ Léo:     Fica na Rua Exemplo, 123 - Centro. Até sábado!
 | Menu numerado e fluxo engessado | Conversa livre: o cliente escreve do jeito dele |
 | A IA não via a agenda (podia inventar) | A IA **consulta a agenda por ferramentas** e nunca inventa horário ou preço |
 | Horários sem data e sem duração | Agenda por **data, barbeiro e duração**, com almoço, folgas, feriados e dias fechados |
-| Textões | Mensagens curtas em balões, com "digitando..." e visto azul |
+| Textões | Mensagens curtas em balões, com "digitando..." |
 | Esquecia tudo | Lembra da conversa e **reconhece quem volta** (nome, barbeiro preferido, estilo) |
 | Chave da API escrita no código | Chave só no `.env`, que nunca vai para o GitHub |
-| Servidor do WhatsApp fora do repositório | Servidor Node incluído (mesmo protocolo da Belinha) |
+| WhatsApp via whatsapp-web.js (Chromium) | **Evolution API** (Baileys) — QR no painel, sem Chrome no container |
 
 ## Funções
 
@@ -86,32 +86,44 @@ python terminal.py
 ```
 Comandos: `/telefone 5575...` (simula outro cliente), `/dono`, `/lembretes`, `/sair`.
 
-### 3. WhatsApp pelo QR code (mesmo esquema da Belinha)
-Precisa de Node.js 18+.
+### 3. WhatsApp com Evolution API (QR code)
+O stack usa a [Evolution API](https://docs.evolutionfoundation.com.br/evolution-api)
+(Baileys). No Docker Compose ela sobe sozinha; o bot recebe mensagens por webhook
+e o painel mostra o QR.
+
 ```bash
-cd servidor-whatsapp && npm install && npm start   # escaneie o QR: WhatsApp > Aparelhos conectados
-python bot_whatsapp.py                              # em outro terminal
+docker compose up -d --build
+# abra o painel → página WhatsApp e escaneie o QR
 ```
-O protocolo é o mesmo da branch `belinhafuncional` (evento `novaMensagem` e `POST /enviarMensagem`
-em `localhost:3000`, sessão `8113`). Conexão por QR code não é oficial: use com moderação.
+
+Localmente (sem Compose completo): suba a Evolution (`evoapicloud/evolution-api`),
+defina `EVOLUTION_URL`, `EVOLUTION_API_KEY` e `EVOLUTION_WEBHOOK_URL` no `.env`,
+depois:
+
+```bash
+uvicorn bot_whatsapp:app --port 8000
+uvicorn painel:app --port 8080
+```
+
+Conexão por QR não é a API oficial da Meta: use com moderação.
 
 ### 4. Painel do dono
 ```bash
 uvicorn painel:app --port 8080
 ```
-Abra http://localhost:8080 (usuário `dono`, senha `PAINEL_SENHA`).
-Na página **WhatsApp / QR** você lê o QR Code no navegador (sem precisar do `docker compose logs`).
+Abra http://localhost:8080 (senha `PAINEL_SENHA`).
+Na página **WhatsApp** você lê o QR Code no navegador.
 
 ### Tudo de uma vez com Docker
 ```bash
-docker compose up -d
-docker compose logs -f whatsapp   # na primeira vez, para escanear o QR code
+docker compose up -d --build
+# QR: painel → /whatsapp  (ou logs: docker compose logs -f evolution)
 ```
 
 ### Na mesma VPS de outro projeto (Ubuntu) — isolamento forte
 Recomendado: usuário Linux `barbearia` + **Docker rootless** (sem sudo, sem grupo
 `docker` do sistema). Assim o bot não enxerga o código/banco do outro projeto
-(ex.: Condo Organize), tem teto de ~1,6 GB de RAM e o painel abre só por túnel SSH
+(ex.: Condo Organize), tem teto de RAM e o painel abre só por túnel SSH
 (sem mexer no Nginx dele).
 
 ```bash
@@ -122,8 +134,8 @@ sudo bash deploy/setup-rootless.sh
 sudo -iu barbearia
 git clone https://github.com/DaviiAlvess/barbearia-bot.git ~/barbearia-bot
 bash ~/barbearia-bot/deploy/instalar-bot.sh
-# edite o .env quando pedido, rode o instalar de novo, escaneie o QR:
-docker compose -f ~/barbearia-bot/docker-compose.yml logs -f whatsapp
+# edite o .env (GEMINI, PAINEL_SENHA, EVOLUTION_API_KEY), rode o instalar de novo
+# escaneie o QR em https://barbearia.SEU_DOMINIO/whatsapp
 ```
 
 Passo a passo completo, tabela do que fica separado e troubleshooting:
@@ -148,11 +160,12 @@ O GitHub Actions roda os testes e o lint a cada push.
 ```
 config.py                dados da barbearia (edite aqui)
 terminal.py              chat no terminal
-bot_whatsapp.py          bot no WhatsApp pelo QR code
-servidor-whatsapp/       servidor Node (whatsapp-web.js) que lê o QR code
+bot_whatsapp.py          webhook Evolution + atendente
 whatsapp.py              opção com a API oficial da Meta
-painel.py                painel web do dono
+painel.py                painel web do dono (agenda + QR)
+docker-compose.yml       evolution + bot + painel
 barbearia/
+  evolution.py           cliente da Evolution API (QR, envio, webhook helpers)
   atendente.py           conversa, IA, ferramentas, comandos do dono, lembretes
   persona.py             personalidade e boas maneiras do atendente
   ferramentas.py         o que a IA pode fazer (agendar, remarcar, avaliar...)

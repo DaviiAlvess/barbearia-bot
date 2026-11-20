@@ -1,128 +1,170 @@
-"""Bot no WhatsApp pelo QR code (mesmo esquema da Belinha / branch belinhafuncional).
+"""Bot no WhatsApp via Evolution API (Baileys).
 
-Funciona assim:
-  servidor-whatsapp (Node, porta 3000)  <-- Socket.IO "novaMensagem" -->  este arquivo (Python)
-  este arquivo  -- POST /enviarMensagem -->  servidor-whatsapp  -->  WhatsApp
+Fluxo:
+  Evolution API  --webhook MESSAGES_UPSERT-->  este arquivo (FastAPI /webhook)
+  este arquivo  -- POST /message/sendText -->  Evolution API  -->  WhatsApp
 
 Rodar:
-  1) cd servidor-whatsapp && npm install && npm start   (escaneie o QR code)
-  2) python bot_whatsapp.py
+  uvicorn bot_whatsapp:app --host 0.0.0.0 --port 8000
 """
+from __future__ import annotations
+
 import logging
-import os
 import threading
 import time
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 
-import requests
-import socketio
 from dotenv import load_dotenv
+from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 load_dotenv()
 
 from barbearia import configurar_log  # noqa: E402
+from barbearia import evolution as evo  # noqa: E402
 from barbearia.atendente import Atendente  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
 from barbearia.ia import Gemini  # noqa: E402
 
 configurar_log()
 log = logging.getLogger("whatsapp")
-SERVIDOR = os.getenv("SERVIDOR_WHATSAPP", "http://localhost:3000")
-ID_SESSAO = os.getenv("ID_SESSAO", "8113")
+
+_vistos: OrderedDict[str, None] = OrderedDict()
+_VISTOS_MAX = 2000
 
 
-def _post(rota, dados):
-    try:
-        r = requests.post(f"{SERVIDOR}{rota}", json={"idSessao": ID_SESSAO, **dados}, timeout=20)
-        if r.status_code >= 300 and rota != "/digitando":
-            log.error("Erro %s em %s: %s", r.status_code, rota, r.text[:200])
-    except requests.RequestException as e:
-        if rota != "/digitando":
-            log.error("Falha em %s: %s", rota, e)
+def _lembrar(mid: str) -> bool:
+    """True se já vimos essa mensagem."""
+    if not mid:
+        return False
+    if mid in _vistos:
+        return True
+    _vistos[mid] = None
+    while len(_vistos) > _VISTOS_MAX:
+        _vistos.popitem(last=False)
+    return False
 
 
-def enviar(numero, texto):
-    _post("/enviarMensagem", {"numero": numero, "mensagem": texto})
+def enviar(numero: str, texto: str) -> None:
+    evo.enviar_texto(numero, texto)
 
 
-def digitando(numero):
-    _post("/digitando", {"numero": numero})  # se o servidor não tiver essa rota, só ignora
+def digitando(numero: str, delay_ms: int = 2000) -> None:
+    evo.digitando(numero, delay_ms)
 
 
 bot = Atendente(Gemini(), enviar=enviar)
-_vistos: set[str] = set()
 
 
-def processar(numero, texto):
-    time.sleep(1.5)  # ninguém responde no mesmo milissegundo
+def processar(numero: str, texto: str) -> None:
+    time.sleep(1.5)
     for balao in bot.responder(numero, texto):
-        digitando(numero)
+        digitando(numero, delay_ms=int(tempo_digitando(balao) * 1000) or 1500)
         time.sleep(tempo_digitando(balao))
         enviar(numero, balao)
 
 
-def montar_socket():
-    sio = socketio.Client(reconnection=True, reconnection_delay=5)
-
-    @sio.event
-    def connect():
-        log.info("Conectado ao servidor do WhatsApp (%s), sessão %s", SERVIDOR, ID_SESSAO)
-
-    @sio.event
-    def disconnect():
-        log.warning("Desconectado do servidor do WhatsApp. Tentando reconectar...")
-
-    @sio.on("novaMensagem")
-    def nova_mensagem(data):
-        if str(data.get("idSessao", ID_SESSAO)) != str(ID_SESSAO):
-            return
-        origem = data.get("from", "")
-        if data.get("fromMe") or origem.endswith("@g.us") or origem == "status@broadcast":
-            return  # ignora grupos, status e mensagens enviadas por nós
-        mid = data.get("id")
-        if mid:
-            if mid in _vistos:
-                return
-            _vistos.add(mid)
-        numero = origem.replace("@c.us", "")
-        tipo = data.get("type", "chat")
-        texto = (data.get("body") or "").strip()
-        if tipo in ("ptt", "audio"):
-            texto = "[o cliente mandou um áudio que você não consegue ouvir; peça com jeito para escrever]"
-        elif tipo not in ("chat", "text") and not texto:
-            texto = f"[o cliente mandou um(a) {tipo}; responda de forma natural]"
-        if not texto:
-            return
-        log.info("Mensagem de %s: %s", numero, texto[:80])
-        # cada mensagem em uma thread para não travar as outras conversas
-        threading.Thread(target=processar, args=(numero, texto), daemon=True).start()
-
-    return sio
-
-
-def loop_programadas():
-    """Lembretes e pedidos de avaliação, a cada 5 minutos."""
+def loop_programadas() -> None:
     while True:
         try:
             bot.enviar_programadas()
-        except Exception:  # o loop não pode morrer
+        except Exception:  # noqa: BLE001 — o loop não pode morrer
             log.exception("Erro ao enviar mensagens programadas")
         time.sleep(300)
 
 
-def main():
+def _evento_nome(payload: dict) -> str:
+    ev = payload.get("event") or payload.get("Event") or ""
+    return str(ev).replace(".", "_").upper()
+
+
+def _payload_mensagem(payload: dict) -> dict | None:
+    data = payload.get("data") or payload
+    if isinstance(data, list):
+        data = data[0] if data else None
+    if not isinstance(data, dict):
+        return None
+    # às vezes vem {messages: [...]}
+    if "key" not in data and isinstance(data.get("messages"), list) and data["messages"]:
+        data = data["messages"][0]
+    return data if isinstance(data, dict) else None
+
+
+def tratar_mensagem(payload: dict) -> None:
+    ev = _evento_nome(payload)
+    # Aceita MESSAGES_UPSERT ou payload sem event (só a mensagem)
+    if ev and ev not in ("MESSAGES_UPSERT", "MESSAGESUPSERT"):
+        return
+
+    data = _payload_mensagem(payload)
+    if not data:
+        return
+
+    key = data.get("key") or {}
+    if key.get("fromMe"):
+        return
+
+    remote = key.get("remoteJid") or data.get("remoteJid") or ""
+    numero = evo.extrair_telefone(str(remote))
+    if not numero:
+        return
+
+    mid = key.get("id") or data.get("id") or ""
+    if _lembrar(str(mid)):
+        return
+
+    message = data.get("message") or {}
+    # remove messageContextInfo noise
+    if isinstance(message, dict) and "message" in message and len(message) <= 3:
+        message = message.get("message") or message
+
+    tipo = data.get("messageType") or data.get("type")
+    texto = evo.extrair_texto_mensagem(message if isinstance(message, dict) else None, tipo)
+    if not texto:
+        return
+
+    log.info("Mensagem de %s: %s", numero, texto[:80])
+    threading.Thread(target=processar, args=(numero, texto), daemon=True).start()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    log.info("Boot Evolution: URL=%s instance=%s", evo.URL, evo.INSTANCE)
+    try:
+        evo.garantir_instancia()
+        st = evo.estado_conexao()
+        log.info("Estado da conexão: %s", st)
+        if st != "open":
+            evo.conectar()
+    except Exception:  # noqa: BLE001
+        log.exception("Falha ao preparar instância Evolution (vou seguir; webhook pode criar depois)")
     threading.Thread(target=loop_programadas, daemon=True).start()
-    sio = montar_socket()
-    while True:
-        try:
-            log.info("Conectando em %s...", SERVIDOR)
-            sio.connect(SERVIDOR)
-            sio.wait()
-        except socketio.exceptions.ConnectionError as e:
-            log.error("Não conectou (%s). O servidor-whatsapp está rodando? Nova tentativa em 10s", e)
-            time.sleep(10)
-        except KeyboardInterrupt:
-            log.info("Bot encerrado.")
-            break
+    yield
+
+
+app = FastAPI(title="Agendbarber — Evolution webhook", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+
+@app.get("/health")
+def health():
+    return {"ok": True, "instance": evo.INSTANCE, "estado": evo.estado_conexao()}
+
+
+@app.post("/webhook")
+async def webhook(request: Request, tarefas: BackgroundTasks):
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        return Response(status_code=400)
+    # processa em background para responder 200 rápido à Evolution
+    tarefas.add_task(tratar_mensagem, payload)
+    return {"received": True}
+
+
+def main():
+    import uvicorn
+
+    uvicorn.run("bot_whatsapp:app", host="0.0.0.0", port=8000, log_level="info")
 
 
 if __name__ == "__main__":
