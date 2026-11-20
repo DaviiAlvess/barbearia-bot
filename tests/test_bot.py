@@ -228,6 +228,15 @@ def test_eh_dono_aceita_com_ou_sem_55(monkeypatch):
     assert not _eh_dono("5575888880000")
 
 
+def test_sem_bot_casa_mesmo_com_digito_a_mais():
+    """Evelyn na lista sem 55 / com dígito extra ainda bloqueia o JID real."""
+    db.adicionar_sem_bot("75991075838", "Evelyn")
+    assert db.eh_sem_bot("557591075838")  # últimos 8 iguais: 91075838
+    assert db.eh_sem_bot("7591075838")
+    db.remover_sem_bot("557591075838")
+    assert not db.eh_sem_bot("557591075838")
+
+
 def test_sem_chat_bot_nao_responde(monkeypatch):
     """Número particular: bot fica quieto; dá para tirar da lista e voltar."""
     monkeypatch.setenv("TELEFONE_DONO", "dono")

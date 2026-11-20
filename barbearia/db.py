@@ -290,11 +290,15 @@ def _salvar_sem_bot(itens: list[dict[str, str]]) -> None:
 
 def adicionar_sem_bot(telefone: str, nome: str = "") -> None:
     tel = normalizar_telefone(telefone)
-    if len(tel) < 10:
+    if len(tel) < 8:
         raise ValueError("Informe um telefone válido com DDD (ex.: 75999990000).")
+    # Preferir formato com 55 se vier só com DDD (11 dígitos)
+    if len(tel) == 11 and not tel.startswith("55"):
+        tel = "55" + tel
     itens = listar_sem_bot()
     for i in itens:
-        if i["telefone"] == tel or i["telefone"].endswith(tel) or tel.endswith(i["telefone"]):
+        if _telefones_equivalentes(i["telefone"], tel):
+            i["telefone"] = tel if len(tel) >= len(i["telefone"]) else i["telefone"]
             i["nome"] = (nome or i["nome"])[:60]
             _salvar_sem_bot(itens)
             return
@@ -305,12 +309,24 @@ def adicionar_sem_bot(telefone: str, nome: str = "") -> None:
 def remover_sem_bot(telefone: str) -> bool:
     tel = normalizar_telefone(telefone)
     itens = listar_sem_bot()
-    novos = [i for i in itens
-             if not (i["telefone"] == tel or i["telefone"].endswith(tel) or tel.endswith(i["telefone"]))]
+    novos = [i for i in itens if not _telefones_equivalentes(i["telefone"], tel)]
     if len(novos) == len(itens):
         return False
     _salvar_sem_bot(novos)
     return True
+
+
+def _telefones_equivalentes(a: str, b: str) -> bool:
+    """Compara números BR com/sem 55 e com DDD (evita falha por digitação parcial)."""
+    a, b = normalizar_telefone(a), normalizar_telefone(b)
+    if not a or not b:
+        return False
+    if a == b or a.endswith(b) or b.endswith(a):
+        return True
+    # últimos 8–9 dígitos — ignora 55/DDD/9 extra errado na digitação
+    if len(a) >= 8 and len(b) >= 8 and a[-8:] == b[-8:]:
+        return True
+    return bool(len(a) >= 9 and len(b) >= 9 and a[-9:] == b[-9:])
 
 
 def eh_sem_bot(telefone: str) -> bool:
@@ -318,11 +334,7 @@ def eh_sem_bot(telefone: str) -> bool:
     n = normalizar_telefone(telefone)
     if not n:
         return False
-    for i in listar_sem_bot():
-        x = i["telefone"]
-        if n == x or n.endswith(x) or x.endswith(n):
-            return True
-    return False
+    return any(_telefones_equivalentes(n, i["telefone"]) for i in listar_sem_bot())
 
 
 def _servicos_padrao() -> dict[str, tuple[float, int]]:
