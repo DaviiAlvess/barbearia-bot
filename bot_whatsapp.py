@@ -10,6 +10,7 @@ Rodar:
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -21,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 load_dotenv()
 
-from barbearia import configurar_log  # noqa: E402
+from barbearia import configurar_log, db  # noqa: E402
 from barbearia import evolution as evo  # noqa: E402
 from barbearia.atendente import Atendente, _eh_dono, telefone_dono  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
@@ -34,6 +35,29 @@ _vistos: OrderedDict[str, None] = OrderedDict()
 _VISTOS_MAX = 2000
 # Pool próprio: não depende de daemon thread solto (morre/trava sem log)
 _pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wa")
+
+# fromMe: só trata marcação/agenda (ou confirmação se já tem conversa do dono)
+_FROME_MARCACAO = re.compile(
+    r"\b(marcar|marca|agendar|agenda|hor[aá]rio|reserva|reservar)\b",
+    re.IGNORECASE,
+)
+_FROME_CURTO = re.compile(
+    r"^(sim|pode|fechou|blz|beleza|ok|isso|uhum|não|nao|depois|"
+    r"corte|barba|corte\s*\+\s*barba|"
+    r"\d{1,2}([:.h]\d{0,2})?\s*(h|hrs?)?)$",
+    re.IGNORECASE,
+)
+
+
+def _fromme_marcacao_dono(texto: str, destino: str) -> bool:
+    """True se o dono está marcando cliente ou respondendo essa conversa."""
+    t = (texto or "").strip()
+    if not t:
+        return False
+    if _FROME_MARCACAO.search(t):
+        return True
+    hist, _, _ = db.carregar_conversa(destino)
+    return bool(hist and _FROME_CURTO.match(t))
 
 
 def _lembrar(mid: str) -> bool:
@@ -138,16 +162,17 @@ def tratar_mensagem(payload: dict) -> None:
         if not texto:
             return
 
-        # Mensagem digitada no próprio aparelho conectado (fromMe):
-        # só processa comandos # do dono; resto ignora (senão responde sozinho).
+        # Mensagem digitada no aparelho do QR (fromMe):
+        # #comandos e marcação de cliente ("quero marcar 15h pro João") → dono cadastrado.
+        # Outro papo no zap (resposta a cliente etc.) ignora, senão o bot fala sozinho.
         if from_me:
-            if not texto.startswith("#"):
-                return
             destino = telefone_dono() or numero
             if not destino:
-                log.warning("Comando fromMe ignorado: TELEFONE_DONO cadastrado vazio")
+                log.warning("fromMe ignorado: TELEFONE_DONO cadastrado vazio")
                 return
-            log.info("Comando do aparelho (#) → dono cadastrado %s: %s", destino, texto[:80])
+            if not texto.startswith("#") and not _fromme_marcacao_dono(texto, destino):
+                return
+            log.info("fromMe → dono cadastrado %s: %s", destino, texto[:80])
             _pool.submit(processar, destino, texto)
             return
 

@@ -31,7 +31,7 @@ def _periodo(h):
     return "bom dia" if h < 12 else "boa tarde" if h < 18 else "boa noite"
 
 
-def montar(cliente=None, ultimo=None, conversa_nova=True, pendentes=None):
+def montar(cliente=None, ultimo=None, conversa_nova=True, pendentes=None, modo_dono=False):
     agora = agenda.agora()
     from barbearia import guardrails, treino_conversa
     servicos = guardrails.lista_servicos_fechada()
@@ -40,6 +40,12 @@ def montar(cliente=None, ultimo=None, conversa_nova=True, pendentes=None):
     salao = db.nome_salao()
     periodo = _periodo(agora.hour)
     endereco = db.endereco()
+
+    if modo_dono:
+        return _montar_dono(
+            agora, periodo, salao, endereco, servicos, equipe, nomes_serv,
+            conversa_nova, treino_conversa,
+        )
 
     if cliente and cliente.get("nome"):
         sobre = f"Cliente conhecido: {cliente['nome']}."
@@ -159,4 +165,50 @@ Equipe:
 {equipe}
 Outras informações:{config.INFO_EXTRA}
 SOBRE ESTE CLIENTE: {sobre}
+"""
+
+
+def _montar_dono(
+    agora, periodo, salao, endereco, servicos, equipe, nomes_serv,
+    conversa_nova, treino_conversa,
+):
+    """Instruções quando quem fala é o dono (número cadastrado / aparelho do QR)."""
+    inicio = (
+        f"Início: cumprimente curto ({periodo}) e pergunte o que precisa na agenda."
+        if conversa_nova else
+        "Conversa em andamento: NÃO cumprimente de novo; continue."
+    )
+    return f"""Você é o {config.NOME_ATENDENTE} falando com o DONO da {salao} no WhatsApp dele
+(número cadastrado / aparelho que leu o QR). Seja direto e curto.
+
+{inicio}
+
+MODO DONO — marcar horário para um cliente:
+O dono fala tipo: "quero marcar 15h pro João", "agenda 10:30 Corte + Barba pra Maria com o Rafael".
+Fluxo obrigatório:
+1) Pegue: nome da pessoa, hora, serviço (se faltar, pergunte; padrão razoável = Corte),
+   data (hoje se não disser → resolver_data), barbeiro se ele citar.
+2) checar_horario com data/hora/serviço/(barbeiro).
+3) Se livre=true → confirme numa frase e ESPERE ele aprovar ("sim", "pode", "marca").
+   Aí agendar_para_cliente.
+4) Se livre=false → diga que esse horário já tem gente (ocupado_com se vier).
+   Ofereça o mais_proximo e liste livres_ate_fechar (vagos até fechar).
+   Quando ele escolher/aprovar um → agendar_para_cliente.
+5) telefone_cliente só se ele passar o WhatsApp do cliente; senão marque sem.
+
+Também pode usar #agenda / #cancelar (comandos). Não faça recepção de cliente novo
+(tabela de preços etc.) a menos que ele peça. Não invente horário.
+
+Serviços válidos: {nomes_serv}
+{servicos}
+Equipe:
+{equipe}
+Funcionamento: {_horarios()}. Almoço: {config.ALMOCO[0]}-{config.ALMOCO[1]}.
+Endereço: {endereco}
+
+{treino_conversa.bloco_dono(periodo)}
+
+AGORA: {agenda.DIAS_SEMANA[agora.weekday()]}, {agora.strftime('%d/%m/%Y %H:%M')} (America/Bahia).
+Calendário:
+{_calendario()}
 """

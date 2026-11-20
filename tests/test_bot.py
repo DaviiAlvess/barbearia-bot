@@ -70,6 +70,39 @@ def test_servico_longo_respeita_almoco_e_conflito():
     assert "10:00" in r and "11:00" in r
 
 
+def test_dono_checa_horario_e_agenda_para_cliente(monkeypatch):
+    """Dono cadastrado: se a hora pedida ocupou, sugere próximos; se aprovar, marca."""
+    monkeypatch.setenv("TELEFONE_DONO", "dono")
+    agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte", "Rafael")
+    chk = agenda.checar_horario_pedido(SABADO, "10:00", "Corte", "Rafael")
+    assert chk["livre"] is False
+    info = chk["por_barbeiro"]["Rafael"]
+    assert info["mais_proximo"] in info["livres_ate_fechar"]
+    assert "10:00" not in info["livres_ate_fechar"]
+    assert "10:30" in info["livres_ate_fechar"]
+
+    livre = agenda.checar_horario_pedido(SABADO, "11:00", "Corte", "Rafael")
+    assert livre["livre"] is True
+
+    r = ferramentas.executar(
+        "agendar_para_cliente",
+        {"nome_cliente": "João", "data": SABADO, "hora": "11:00",
+         "servico": "Corte", "barbeiro": "Rafael"},
+        "dono",
+    )
+    assert r.get("ok") and r["nome_cliente"] == "João"
+    # cliente comum não usa agendar_para_cliente
+    neg = ferramentas.executar(
+        "agendar_para_cliente",
+        {"nome_cliente": "X", "data": SABADO, "hora": "14:00", "servico": "Corte"},
+        TEL,
+    )
+    assert "erro" in neg
+
+    txt = persona.montar(None, None, True, modo_dono=True)
+    assert "MODO DONO" in txt and "checar_horario" in txt
+
+
 def test_horarios_livres_desconta_ocupados_e_duraçao():
     """'Todos os vagos' = agenda real: preenchidos fora, só o que a duração cabe."""
     agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte + Barba", "Rafael")  # 10:00–11:00

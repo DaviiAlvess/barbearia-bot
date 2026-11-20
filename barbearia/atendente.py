@@ -192,11 +192,13 @@ class Atendente:
                 conversa_nova = False
 
             pendentes = agenda.agendamentos_futuros(telefone)
+            modo_dono = _eh_dono(telefone)
             instrucoes = persona.montar(
                 db.obter_cliente(telefone),
                 db.ultimo_atendimento(telefone),
                 conversa_nova,
                 pendentes=pendentes,
+                modo_dono=modo_dono,
             )
             inicio_turno = len(hist)
             hist.append({"role": "user", "parts": [{"text": texto_ia}]})

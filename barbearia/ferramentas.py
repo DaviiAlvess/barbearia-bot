@@ -62,6 +62,43 @@ DECLARACOES = [
         },
     },
     {
+        "name": "checar_horario",
+        "description": "MODO DONO: verifica se um horário pedido está livre na agenda "
+                       "(considerando o serviço). Se estiver ocupado, devolve o mais próximo "
+                       "e a lista de vagos até fechar. Use SEMPRE antes de agendar_para_cliente.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "AAAA-MM-DD"},
+                "hora": {"type": "string", "description": "HH:MM pedida"},
+                "servico": {"type": "string"},
+                "barbeiro": {"type": "string", "description": "Opcional. Nome do profissional"},
+            },
+            "required": ["data", "hora", "servico"],
+        },
+    },
+    {
+        "name": "agendar_para_cliente",
+        "description": "MODO DONO: marca horário para um cliente (nome) na agenda. "
+                       "Só depois de checar_horario e o dono aprovar o horário. "
+                       "telefone_cliente é opcional (WhatsApp do cliente).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nome_cliente": {"type": "string"},
+                "data": {"type": "string", "description": "AAAA-MM-DD"},
+                "hora": {"type": "string", "description": "HH:MM aprovada"},
+                "servico": {"type": "string"},
+                "barbeiro": {"type": "string", "description": "Opcional"},
+                "telefone_cliente": {
+                    "type": "string",
+                    "description": "Opcional. WhatsApp do cliente com DDD",
+                },
+            },
+            "required": ["nome_cliente", "data", "hora", "servico"],
+        },
+    },
+    {
         "name": "meus_agendamentos",
         "description": "Lista os próximos horários marcados por este cliente (para lembrar, cancelar ou remarcar).",
         "parameters": {"type": "object", "properties": {}},
@@ -196,6 +233,26 @@ def executar(nome, args, telefone, enviar=None):
                                args.get("hora"), args.get("servico", ""), args.get("barbeiro"))
             db.salvar_cliente(telefone, nome=args.get("nome_cliente"))
             return r
+        if nome == "checar_horario":
+            return agenda.checar_horario_pedido(
+                args.get("data"), args.get("hora"), args.get("servico", ""), args.get("barbeiro"),
+            )
+        if nome == "agendar_para_cliente":
+            from barbearia.atendente import _eh_dono
+            if not _eh_dono(telefone):
+                return {"erro": "Só o dono cadastrado pode marcar horário para outra pessoa."}
+            tel_informado = db.normalizar_telefone(args.get("telefone_cliente") or "")
+            tel_cli = tel_informado or f"90{int(time.time()) % 10**9:09d}"
+            nome_cli = (args.get("nome_cliente") or "").strip()
+            if not nome_cli:
+                return {"erro": "Informe o nome da pessoa."}
+            r = agenda.agendar(
+                tel_cli, nome_cli, args.get("data"), args.get("hora"),
+                args.get("servico", ""), args.get("barbeiro"),
+            )
+            if tel_informado:
+                db.salvar_cliente(tel_cli, nome=nome_cli)
+            return {**r, "telefone_cliente": tel_cli, "nome_cliente": nome_cli}
         if nome == "meus_agendamentos":
             return {"agendamentos": agenda.agendamentos_futuros(telefone)}
         if nome == "cancelar_agendamento":

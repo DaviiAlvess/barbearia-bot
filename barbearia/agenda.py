@@ -279,6 +279,66 @@ def horarios_livres(data_txt, servico, barbeiro=None):
     }
 
 
+def _minutos_hm(hora: str) -> int:
+    h, m = hora.strip().split(":")[:2]
+    return int(h) * 60 + int(m)
+
+
+def checar_horario_pedido(data_txt, hora: str, servico, barbeiro=None) -> dict:
+    """Para o dono marcar um cliente: livre? se não, mais próximo + vagos até fechar."""
+    try:
+        hora_norm = datetime.strptime(hora.strip()[:5], "%H:%M").strftime("%H:%M")
+    except ValueError as exc:
+        raise ErroAgenda("Hora inválida, use HH:MM (ex.: 15:00).") from exc
+
+    base = horarios_livres(data_txt, servico, barbeiro)
+    if base.get("fechado") or "livres_por_barbeiro" not in base:
+        return base
+
+    livres_por = base["livres_por_barbeiro"]
+    ocupados_por = base.get("ocupados_por_barbeiro") or {}
+    pedida = _minutos_hm(hora_norm)
+    por_barbeiro = {}
+    for b, livres in livres_por.items():
+        livre = hora_norm in livres
+        ate_fechar = [h for h in livres if _minutos_hm(h) >= pedida]
+        # Mais próximo: prefere o próximo livre daí pra frente; senão o último antes.
+        mais_proximo = None
+        if ate_fechar:
+            mais_proximo = ate_fechar[0]
+        elif livres:
+            mais_proximo = livres[-1]
+        if not ate_fechar:
+            ate_fechar = list(livres)
+        quem = None
+        if not livre:
+            for o in ocupados_por.get(b) or []:
+                ini, fim = _minutos_hm(o["inicio"]), _minutos_hm(o["fim"])
+                if ini <= pedida < fim:
+                    quem = o
+                    break
+        por_barbeiro[b] = {
+            "livre": livre,
+            "hora_pedida": hora_norm,
+            "ocupado_com": quem,
+            "mais_proximo": mais_proximo,
+            "livres_ate_fechar": ate_fechar,
+        }
+
+    algum_livre = any(v["livre"] for v in por_barbeiro.values())
+    return {
+        **{k: base[k] for k in ("data", "dia_semana", "servico", "preco", "duracao_min")},
+        "hora_pedida": hora_norm,
+        "livre": algum_livre,
+        "por_barbeiro": por_barbeiro,
+        "regra": (
+            "Se livre=true, confirme com o dono e use agendar_para_cliente. "
+            "Se livre=false, fale o mais_proximo e liste livres_ate_fechar; "
+            "só marque depois que ele aprovar um horário."
+        ),
+    }
+
+
 def agendar(telefone, nome_cliente, data_txt, hora, servico, barbeiro=None):
     d = ler_data(data_txt)
     servico = achar_servico(servico)
