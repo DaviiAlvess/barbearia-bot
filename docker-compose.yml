@@ -1,28 +1,80 @@
 # Sobe tudo com: docker compose up -d
-# Para ver o QR code na primeira vez: docker compose logs -f whatsapp
-# Os limites de memória (mem_limit) protegem outros projetos que rodam na mesma VPS.
+# QR code: abra o painel → /whatsapp
+# Os limites de memória (mem_limit) protegem outros projetos na mesma VPS.
+# Em VPS compartilhada, prefira Docker rootless do usuário "barbearia"
+# (veja deploy/README.md) — mem_limit exige cgroup delegado (setup-rootless.sh).
 name: barbearia-bot
 services:
-  whatsapp:
-    build: ./servidor-whatsapp
+  evolution-db:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      - ID_SESSAO=${ID_SESSAO:-8113}
+      - POSTGRES_USER=evolution
+      - POSTGRES_PASSWORD=${EVOLUTION_DB_PASSWORD:-evolution_local}
+      - POSTGRES_DB=evolution
     volumes:
-      - sessao-whatsapp:/app/.wwebjs_auth   # guarda o login (não precisa ler o QR de novo)
-    mem_limit: 1g
-    shm_size: 256m   # o Chromium precisa de memória compartilhada
+      - evolution_pg:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    environment:
+      - SERVER_URL=http://evolution:8080
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      - LANGUAGE=pt-BR
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://evolution:${EVOLUTION_DB_PASSWORD:-evolution_local}@evolution-db:5432/evolution?schema=public
+      - DATABASE_CONNECTION_CLIENT_NAME=agendbarber
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=false
+      - DATABASE_SAVE_MESSAGE_UPDATE=false
+      - DATABASE_SAVE_DATA_CONTACTS=false
+      - DATABASE_SAVE_DATA_CHATS=false
+      - DATABASE_SAVE_DATA_LABELS=false
+      - DATABASE_SAVE_DATA_HISTORIC=false
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_LOCAL_ENABLED=true
+      - LOG_LEVEL=ERROR,WARN,INFO
+      - CONFIG_SESSION_PHONE_CLIENT=Agendbarber
+      - CONFIG_SESSION_PHONE_NAME=Chrome
+      - QRCODE_LIMIT=30
+      - DEL_INSTANCE=false
+      - WEBHOOK_GLOBAL_ENABLED=false
+    volumes:
+      - evolution_instances:/evolution/instances
+    # Só rede interna do compose — não publica porta na VPS
+    expose:
+      - "8080"
+    depends_on:
+      evolution-db:
+        condition: service_healthy
+    mem_limit: 768m
 
   bot:
     build: .
     restart: unless-stopped
+    command: uvicorn bot_whatsapp:app --host 0.0.0.0 --port 8000
     env_file: .env
     environment:
-      - SERVIDOR_WHATSAPP=http://whatsapp:3000
+      - EVOLUTION_URL=http://evolution:8080
+      - EVOLUTION_WEBHOOK_URL=http://bot:8000/webhook
+      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE:-barbearia}
     volumes:
       - dados:/app/dados
     depends_on:
-      - whatsapp
+      - evolution
+    expose:
+      - "8000"
     mem_limit: 384m
 
   painel:
@@ -30,13 +82,20 @@ services:
     restart: unless-stopped
     command: uvicorn painel:app --host 0.0.0.0 --port 8080
     env_file: .env
+    environment:
+      - EVOLUTION_URL=http://evolution:8080
+      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE:-barbearia}
     ports:
-      # só a própria VPS acessa; use Nginx (subdomínio) ou túnel SSH para abrir de fora
+      # Só localhost: o Caddy (site barbearia.condoorganize.com) faz o proxy.
+      # Não usa os virtual hosts do Condo; porta padrão local 8080, na VPS use 8090.
       - "127.0.0.1:${PAINEL_PORTA:-8080}:8080"
     volumes:
       - dados:/app/dados
+    depends_on:
+      - evolution
     mem_limit: 256m
 
 volumes:
-  sessao-whatsapp:
+  evolution_instances:
+  evolution_pg:
   dados:

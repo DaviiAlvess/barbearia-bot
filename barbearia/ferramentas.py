@@ -3,7 +3,6 @@ em vez de inventar horário ou preço."""
 import os
 import time
 
-import config
 from barbearia import agenda, db
 
 PAUSA_HUMANO_HORAS = 2
@@ -84,10 +83,17 @@ DECLARACOES = [
         },
     },
     {
+        "name": "ver_tabela_servicos",
+        "description": "Lista os serviços oferecidos com preço e duração. "
+                       "Use quando o cliente perguntar valores, o que tem, ou a tabela de preços.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "ver_fidelidade",
         "description": "Mostra quantos atendimentos o cliente já fez e quanto falta para o brinde do cartão fidelidade.",
         "parameters": {"type": "object", "properties": {}},
     },
+
     {
         "name": "lembrar_cliente",
         "description": "Guarda o nome do cliente, o barbeiro preferido ou uma observação útil "
@@ -181,6 +187,12 @@ def executar(nome, args, telefone, enviar=None):
         if nome == "entrar_lista_espera":
             return agenda.entrar_lista_espera(telefone, args.get("data"), args.get("servico", ""),
                                               args.get("barbeiro"))
+        if nome == "ver_tabela_servicos":
+            tabela = [
+                {"servico": n, "preco": p, "minutos": m}
+                for n, (p, m) in db.listar_servicos().items()
+            ]
+            return {"servicos": tabela, "texto": db.tabela_servicos_texto()}
         if nome == "ver_fidelidade":
             return agenda.fidelidade(telefone)
         if nome == "lembrar_cliente":
@@ -210,7 +222,7 @@ def executar(nome, args, telefone, enviar=None):
             db.pausar_bot(telefone, time.time() + PAUSA_HUMANO_HORAS * 3600)
             dono = os.getenv("TELEFONE_DONO")
             if enviar and dono:
-                enviar(dono, f"🔔 {config.NOME_BARBEARIA}: cliente {telefone} precisa de atendimento. "
+                enviar(dono, f"🔔 {db.nome_salao()}: cliente {telefone} precisa de atendimento. "
                             f"Motivo: {args.get('motivo')}")
             return {"ok": True, "info": "Um atendente vai assumir. Avise o cliente de forma natural."}
         return {"erro": f"Ferramenta desconhecida: {nome}"}
