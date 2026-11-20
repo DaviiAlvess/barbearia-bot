@@ -10,6 +10,7 @@ Rodar:
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -21,9 +22,9 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 load_dotenv()
 
-from barbearia import configurar_log  # noqa: E402
+from barbearia import configurar_log, db  # noqa: E402
 from barbearia import evolution as evo  # noqa: E402
-from barbearia.atendente import Atendente  # noqa: E402
+from barbearia.atendente import Atendente, _eh_dono  # noqa: E402
 from barbearia.humanizar import tempo_digitando  # noqa: E402
 from barbearia.ia import Gemini  # noqa: E402
 
@@ -66,7 +67,7 @@ def processar(numero: str, texto: str) -> None:
         time.sleep(0.8)
         baloes = bot.responder(numero, texto)
         if not baloes:
-            log.warning("Sem resposta para %s (pausado, limite ou vazio)", numero)
+            log.warning("Sem resposta para %s (pausado, sem-chat, limite ou vazio)", numero)
             return
         for i, balao in enumerate(baloes):
             digitando(numero)
@@ -103,6 +104,10 @@ def _payload_mensagem(payload: dict) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _telefone_dono() -> str:
+    return db.normalizar_telefone(os.getenv("TELEFONE_DONO") or "") or (os.getenv("TELEFONE_DONO") or "")
+
+
 def tratar_mensagem(payload: dict) -> None:
     try:
         ev = _evento_nome(payload)
@@ -115,8 +120,7 @@ def tratar_mensagem(payload: dict) -> None:
             return
 
         key = data.get("key") or {}
-        if key.get("fromMe"):
-            return
+        from_me = bool(key.get("fromMe"))
 
         remote = key.get("remoteJid") or data.get("remoteJid") or ""
         numero = evo.extrair_telefone(str(remote))
@@ -124,9 +128,6 @@ def tratar_mensagem(payload: dict) -> None:
             # LID / grupo: tenta remoteJidAlt
             alt = key.get("remoteJidAlt") or data.get("remoteJidAlt") or ""
             numero = evo.extrair_telefone(str(alt))
-        if not numero:
-            log.debug("Ignorada (sem telefone): %s", remote)
-            return
 
         mid = key.get("id") or data.get("id") or ""
         if _lembrar(str(mid)):
@@ -142,7 +143,29 @@ def tratar_mensagem(payload: dict) -> None:
         if not texto:
             return
 
+        # Mensagem digitada no próprio aparelho conectado (fromMe):
+        # só processa comandos # do dono; resto ignora (senão responde sozinho).
+        if from_me:
+            if not texto.startswith("#"):
+                return
+            destino = _telefone_dono() or numero
+            if not destino:
+                log.warning("Comando fromMe ignorado: TELEFONE_DONO vazio")
+                return
+            log.info("Comando do aparelho (#) → dono %s: %s", destino, texto[:80])
+            _pool.submit(processar, destino, texto)
+            return
+
+        if not numero:
+            log.debug("Ignorada (sem telefone): %s", remote)
+            return
+
         log.info("Mensagem de %s: %s", numero, texto[:80])
+        if texto.startswith("#") and not _eh_dono(numero):
+            log.warning(
+                "Comando # de %s ignorado (não é TELEFONE_DONO=%s)",
+                numero, _telefone_dono() or "(vazio)",
+            )
         _pool.submit(processar, numero, texto)
     except Exception:  # noqa: BLE001
         log.exception("Falha no webhook")
@@ -151,6 +174,15 @@ def tratar_mensagem(payload: dict) -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     log.info("Boot Evolution: URL=%s instance=%s", evo.URL, evo.INSTANCE)
+    dono = _telefone_dono()
+    if not dono or dono.endswith("00000000") or dono == "5575900000000":
+        log.error(
+            "TELEFONE_DONO parece placeholder (%s). "
+            "Comandos #agenda/#semchat só funcionam com o número real do dono no .env",
+            dono or "(vazio)",
+        )
+    else:
+        log.info("TELEFONE_DONO configurado (%s…)", dono[:6])
     try:
         evo.garantir_instancia()
         st = evo.estado_conexao()
