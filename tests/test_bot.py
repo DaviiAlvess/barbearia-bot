@@ -70,6 +70,67 @@ def test_servico_longo_respeita_almoco_e_conflito():
     assert "10:00" in r and "11:00" in r
 
 
+def test_dono_checa_horario_e_agenda_para_cliente(monkeypatch):
+    """Dono cadastrado: se a hora pedida ocupou, sugere próximos; se aprovar, marca."""
+    monkeypatch.setenv("TELEFONE_DONO", "dono")
+    agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte", "Rafael")
+    chk = agenda.checar_horario_pedido(SABADO, "10:00", "Corte", "Rafael")
+    assert chk["livre"] is False
+    info = chk["por_barbeiro"]["Rafael"]
+    assert info["ocupado_com"]["nome_cliente"] == "Ana"
+    assert info["mais_proximo"] in info["livres_ate_fechar"]
+    assert "10:00" not in info["livres_ate_fechar"]
+    assert "10:30" in info["livres_ate_fechar"]
+
+    livre = agenda.checar_horario_pedido(SABADO, "11:00", "Corte", "Rafael")
+    assert livre["livre"] is True
+
+    r = ferramentas.executar(
+        "agendar_para_cliente",
+        {"nome_cliente": "João", "data": SABADO, "hora": "11:00",
+         "servico": "Corte", "barbeiro": "Rafael"},
+        "dono",
+    )
+    assert r.get("ok") and r["nome_cliente"] == "João"
+    # cliente comum não usa agendar_para_cliente
+    neg = ferramentas.executar(
+        "agendar_para_cliente",
+        {"nome_cliente": "X", "data": SABADO, "hora": "14:00", "servico": "Corte"},
+        TEL,
+    )
+    assert "erro" in neg
+
+    txt = persona.montar(None, None, True, modo_dono=True)
+    assert "MODO DONO" in txt and "checar_horario" in txt
+    assert "quem_no_horario" in txt
+
+    quem = agenda.quem_no_horario(SABADO, "10:00", "Rafael")
+    assert quem["total"] == 1
+    assert quem["por_barbeiro"]["Rafael"][0]["nome_cliente"] == "Ana"
+    assert ferramentas.executar(
+        "quem_no_horario", {"data": SABADO, "hora": "10:00", "barbeiro": "Rafael"}, "dono",
+    )["total"] == 1
+
+
+def test_horarios_livres_desconta_ocupados_e_duraçao():
+    """'Todos os vagos' = agenda real: preenchidos fora, só o que a duração cabe."""
+    agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte + Barba", "Rafael")  # 10:00–11:00
+    corte = agenda.horarios_livres(SABADO, "Corte", "Rafael")
+    longo = agenda.horarios_livres(SABADO, "Corte + Barba", "Rafael")
+    # Ocupado aparece no detalhe
+    assert corte["ocupados_por_barbeiro"]["Rafael"][0]["inicio"] == "10:00"
+    assert corte["ocupados_por_barbeiro"]["Rafael"][0]["fim"] == "11:00"
+    # Corte 30 min: 10:00 e 10:30 ocupados; 09:30 livre (termina 10:00)
+    lc = corte["livres_por_barbeiro"]["Rafael"]
+    assert "10:00" not in lc and "10:30" not in lc
+    assert "09:30" in lc and "11:00" in lc
+    # Corte+Barba 60 min: 09:30 também some (iria até 10:30, bate no 10:00)
+    ll = longo["livres_por_barbeiro"]["Rafael"]
+    assert "09:30" not in ll and "10:00" not in ll and "10:30" not in ll
+    assert "09:00" in ll and "11:00" in ll
+    assert longo["duracao_min"] == 60 and "cabe inteiro" in longo["regra"]
+
+
 def test_nao_deixa_marcar_duas_vezes():
     agenda.agendar(TEL, "A", SABADO, "10:00", "Corte", "Diego")
     with pytest.raises(agenda.ErroAgenda):
@@ -88,6 +149,24 @@ def test_nomes_de_servico():
     assert agenda.achar_servico("platinado") == "Luzes / Platinado"
     assert agenda.achar_servico("CORTE") == "Corte"
     assert agenda.achar_barbeiro("rafael") == "Rafael"
+
+
+def test_interpretar_data_nao_alucina_dia_semana():
+    """21/11/2026 é sábado — nunca sexta. Ferramenta e calendário batem."""
+    r = agenda.interpretar_data("2026-11-21")
+    assert r["dia_semana"] == "sábado" and r["data"] == "2026-11-21"
+    assert "sábado" in r["texto"] and "sexta" not in r["texto"]
+    # AGORA do teste é quinta 19/11 → próximo sábado = 21/11
+    r2 = agenda.interpretar_data("sábado")
+    assert r2["data"] == "2026-11-21" and r2["dia_semana"] == "sábado"
+    r3 = agenda.interpretar_data("21/11")
+    assert r3["data"] == "2026-11-21" and r3["dia_semana"] == "sábado"
+    r4 = agenda.interpretar_data("amanhã")
+    assert r4["data"] == "2026-11-20" and r4["dia_semana"] == "sexta"
+    assert ferramentas.executar("resolver_data", {"quando": "21/11"}, TEL)["dia_semana"] == "sábado"
+    cal = persona._calendario()
+    assert "sábado = 2026-11-21" in cal
+    assert "sexta = 2026-11-20" in cal
 
 
 def test_remarcar_e_lista_de_espera():
@@ -160,7 +239,28 @@ def test_cliente_que_volta_e_reconhecido():
     db.salvar_cliente(TEL, nome="Marcos", barbeiro_preferido="Diego", observacoes="degradê na 1")
     txt = persona.montar(db.obter_cliente(TEL), None, True)
     assert "Marcos" in txt and "Diego" in txt and "degradê na 1" in txt
-    assert "2026-11-21" in txt and "sábado 21/11" in txt
+    assert "2026-11-21" in txt and "sábado = 2026-11-21" in txt
+
+
+def test_primeiro_contato_pede_e_salva_nome():
+    """Cliente novo: persona manda perguntar o nome; ao dizer, lembrar_cliente grava e passa a chamar."""
+    txt = persona.montar(None, None, True)
+    assert "pergunte o nome" in txt.lower() or "Qual é o seu nome" in txt
+    assert "tabela de preços" in txt.lower() or "serviços e a tabela" in txt.lower()
+    assert "marcação" in txt.lower() or "marcar" in txt.lower()
+    ia = FakeIA([
+        ("lembrar_cliente", {"nome": "Marcos"}),
+        "Beleza, Marcos! Quer que eu te mande os serviços e a tabela de preços, "
+        "ou você já conhece e prefere seguir com a marcação?",
+    ])
+    bot = Atendente(ia)
+    r = bot.responder(TEL, "meu nome é Marcos")
+    assert db.obter_cliente(TEL)["nome"] == "Marcos"
+    assert "Marcos" in r[0]
+    # próxima conversa já reconhece
+    ia2 = FakeIA(["Oi Marcos, tudo bem? Quer marcar de novo?"])
+    assert "Marcos" in Atendente(ia2).responder(TEL, "oi")[0]
+    assert "Cliente conhecido: Marcos" in ia2.chamadas[0][0]
 
 
 def test_passa_para_humano_e_avisa_dono(monkeypatch):
@@ -181,7 +281,60 @@ def test_comandos_do_dono(monkeypatch):
     bot = Atendente(FakeIA([]))
     r = bot.responder("dono", f"#agenda {SABADO}")[0]
     assert "Marcos" in r and "R$ 35.00" in r
+    # nome do dia (sábado = 21/11/2026 no relógio fixo)
+    r2 = bot.responder("dono", "#agenda sábado")[0]
+    assert "Marcos" in r2 and "21/11" in r2
+    # resumo da semana
+    r3 = bot.responder("dono", "#agenda semana")[0]
+    assert "21/11" in r3 and "1 ·" in r3
+    # sem argumento: hoje + dica dos outros dias
+    r4 = bot.responder("dono", "#agenda")[0]
+    assert "21/11" in r4 and ("Outros dias" in r4 or "semana" in r4)
     assert "Comandos" in bot.responder("dono", "#ajuda")[0]
+
+
+def test_eh_dono_aceita_com_ou_sem_55(monkeypatch):
+    from barbearia import atendente as at
+    from barbearia.atendente import _eh_dono
+    monkeypatch.setenv("TELEFONE_DONO", "5575999990000")
+    monkeypatch.setattr(at, "telefone_dono", lambda: "5575999990000")
+    assert _eh_dono("5575999990000")
+    assert _eh_dono("75999990000")
+    assert not _eh_dono("5575888880000")
+
+
+def test_telefone_dono_sempre_o_cadastrado(monkeypatch):
+    """Dono = número cadastrado (painel/.env); QR conectado não manda."""
+    from barbearia import atendente as at
+    from barbearia import evolution as evo
+
+    monkeypatch.setenv("TELEFONE_DONO", "557581829675")
+    monkeypatch.setattr(evo, "numero_conectado", lambda: "5575999990000")
+    assert at.telefone_dono() == "557581829675"
+    db.salvar_telefone_dono("5575888880000")
+    assert at.telefone_dono() == "5575888880000"
+
+
+def test_sem_bot_casa_mesmo_com_digito_a_mais():
+    """Evelyn na lista sem 55 / com dígito extra ainda bloqueia o JID real."""
+    db.adicionar_sem_bot("75991075838", "Evelyn")
+    assert db.eh_sem_bot("557591075838")  # últimos 8 iguais: 91075838
+    assert db.eh_sem_bot("7591075838")
+    db.remover_sem_bot("557591075838")
+    assert not db.eh_sem_bot("557591075838")
+
+
+def test_sem_chat_bot_nao_responde(monkeypatch):
+    """Número particular: bot fica quieto; dá para tirar da lista e voltar."""
+    monkeypatch.setenv("TELEFONE_DONO", "dono")
+    bot = Atendente(FakeIA(["Oi! Qual é o seu nome?", "E aí de novo!"]))
+    assert bot.responder(TEL, "oi")  # ainda atende
+    assert "Sem chat" in bot.responder("dono", f"#semchat {TEL} Maria")[0]
+    assert db.eh_sem_bot(TEL)
+    assert bot.responder(TEL, "oi sumiu?") == []  # quieto
+    assert "religado" in bot.responder("dono", f"#comchat {TEL}")[0].lower()
+    assert not db.eh_sem_bot(TEL)
+    assert "de novo" in bot.responder(TEL, "oi de novo")[0]
 
 
 def test_ia_fora_do_ar_responde_humano():
@@ -190,8 +343,37 @@ def test_ia_fora_do_ar_responde_humano():
             from barbearia.ia import ErroIA
             raise ErroIA("503")
     bot = Atendente(Quebrada())
-    assert bot.responder(TEL, "oi")[0] in humanizar.SEM_IA
+    r = bot.responder(TEL, "oi")[0]
+    assert r in humanizar.SEM_IA
+    assert "sistema" not in r.lower() and "internet" not in r.lower() and "trav" not in r.lower()
     assert db.carregar_conversa(TEL)[0] == []
+
+
+def test_guardrails_bloqueia_sistema_e_servico_fantasma():
+    from barbearia import guardrails
+    assert "sistema" not in guardrails.sanitizar_resposta(
+        "Opa, meu sistema deu uma travada aqui").lower() or "confusão" in guardrails.sanitizar_resposta(
+        "Opa, meu sistema deu uma travada aqui")
+    s = guardrails.sanitizar_resposta("Temos progressiva e botox capilar sim!")
+    assert "progressiva" not in s.lower() or "tem estes" in s.lower()
+    assert "Corte" in guardrails.sanitizar_resposta("Corte fica R$ 35")
+    fora = guardrails.sanitizar_resposta(
+        "Boa ideia, uma compressa fria ou um soro geladinho ajuda. Desejo melhoras pro Rafael!")
+    assert "soro" not in fora.lower() and "barbearia" in fora.lower()
+    txt = persona.montar(None, None, True)
+    assert "PROIBIDO" in txt and "FLUXO DE AGENDAMENTO" in txt
+    assert "ESCOPO" in txt
+    assert "EXEMPLOS DE CONVERSA" in txt and "ROTEIRO POR INTENÇÃO" in txt
+    assert "FRASES RUINS" in txt and "Respostas curtas de confirmação" in txt
+    assert "Inventar serviço" in txt or "invente serviço" in txt.lower() or "NÃO invente" in txt
+
+
+def test_dica_sim_nao_curto():
+    from barbearia.atendente import _dica_resposta_curta
+    assert "confirmou" in _dica_resposta_curta("sim").lower()
+    assert "confirmou" in _dica_resposta_curta("blz").lower()
+    assert "recusou" in _dica_resposta_curta("não").lower()
+    assert _dica_resposta_curta("quero marcar sábado") is None
 
 
 def test_baloes():
@@ -246,6 +428,43 @@ def test_horario_de_silencio(monkeypatch):
     assert Atendente(FakeIA([])).mensagens_programadas() == []
 
 
+def test_followup_conversa_esquecida(monkeypatch):
+    """Conversa parada no meio do agendamento recebe um toque; não repete; respeita quem já marcou."""
+    import time as _time
+
+    ia = FakeIA([
+        ("ver_horarios_livres", {"data": SABADO, "servico": "Corte", "barbeiro": "Rafael"}),
+        "Sábado com o Rafael tenho 08:00 e 09:00.\n\nQual fica melhor?",
+    ])
+    bot = Atendente(ia)
+    bot.responder(TEL, "tem horário sábado com o rafael?")
+    # simula silêncio de 3h
+    hist, _, _ = db.carregar_conversa(TEL)
+    parado = _time.time() - 3 * 3600
+    db.salvar_conversa(TEL, hist, parado)
+
+    msgs = bot.mensagens_programadas()
+    assert len(msgs) == 1 and msgs[0][0] == TEL
+    assert "marcar" in msgs[0][1].lower() or "horário" in msgs[0][1].lower() or "decidir" in msgs[0][1].lower()
+    assert bot.mensagens_programadas() == []  # não martela
+
+    # se já agendou, não manda follow-up de conversa (só lembretes de agenda, se houver)
+    agenda.agendar(TEL, "Marcos", SABADO, "09:00", "Corte", "Rafael")
+    db.salvar_conversa(TEL, hist, _time.time() - 3 * 3600)
+    db.marcar_followup(TEL, 0)  # libera de novo
+    msgs2 = Atendente(FakeIA([])).mensagens_programadas()
+    assert not any("ainda quer marcar" in m[1].lower() or "conseguiu decidir" in m[1].lower()
+                   for m in msgs2)
+
+
+def test_persona_sempre_ve_agendamentos_pendentes():
+    agenda.agendar(TEL, "Marcos", SABADO, "09:00", "Corte", "Rafael")
+    pend = agenda.agendamentos_futuros(TEL)
+    txt = persona.montar(db.obter_cliente(TEL), None, False, pendentes=pend)
+    assert "09:00" in txt and "Rafael" in txt and "Horários já marcados" in txt
+    assert "retome de onde parou" in persona.montar(None, None, True, pendentes=[])
+
+
 def test_apagar_dados(monkeypatch):
     ia = FakeIA([("apagar_meus_dados", {}), "Pronto, apaguei seus dados. Qualquer coisa é só chamar!"])
     bot = Atendente(ia)
@@ -282,6 +501,46 @@ def test_banco_antigo_e_migrado(tmp_path, monkeypatch):
     assert db.aceita_mensagens("qualquer")
 
 
+def _login_painel(client, senha="s3nha"):
+    r = client.post("/login", data={"senha": senha, "next": "/"}, follow_redirects=False)
+    assert r.status_code == 303
+    return client
+
+
+def test_tabela_servicos_banco_e_ferramenta():
+    assert "Corte" in db.listar_servicos()
+    db.salvar_servicos({"Corte social": (40.0, 30), "Barba": (28.0, 25)})
+    assert db.listar_servicos()["Corte social"] == (40.0, 30)
+    assert agenda.achar_servico("corte social") == "Corte social"
+    r = ferramentas.executar("ver_tabela_servicos", {}, TEL)
+    assert any(s["servico"] == "Barba" and s["preco"] == 28.0 for s in r["servicos"])
+    assert "R$" in r["texto"]
+
+
+def test_endereco_e_profissionais_banco():
+    db.salvar_endereco("Av. Central, 10")
+    assert db.endereco() == "Av. Central, 10"
+    db.salvar_barbeiros([
+        {"nome": "João", "especialidade": "social", "folgas": [0]},
+        {"nome": "Maria", "especialidade": "barba", "folgas": []},
+    ])
+    assert "João" in db.listar_barbeiros()
+    assert agenda.achar_barbeiro("joao") == "João"
+    assert 0 in db.listar_barbeiros()["João"]["folgas"]
+    assert "João" in db.tabela_barbeiros_texto()
+    db.adicionar_barbeiro("Pedro", "platinado")
+    assert "Pedro" in db.listar_barbeiros()
+    assert db.remover_barbeiro("Maria") is True
+    assert "Maria" not in db.listar_barbeiros()
+
+
+def test_nome_salao_painel_e_banco():
+
+    assert db.nome_salao() == "Meu Salão"
+    db.salvar_config("nome_salao", "Barbearia Teste")
+    assert db.nome_salao() == "Barbearia Teste"
+
+
 def test_painel(monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -289,12 +548,131 @@ def test_painel(monkeypatch):
     monkeypatch.setenv("PAINEL_SENHA", "s3nha")
     agenda.agendar(TEL, "<script>alert(1)</script>", SABADO, "09:00", "Corte", "Rafael")
     c = TestClient(painel.app)
-    assert c.get("/").status_code == 401
-    assert c.get("/", auth=("dono", "errada")).status_code == 401
-    r = c.get(f"/?data={SABADO}", auth=("dono", "s3nha"))
+    # sem login: redireciona para página HTML (não JSON)
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 303 and "/login" in r.headers["location"]
+    assert "Entrar" in c.get("/login").text and "Senha" in c.get("/login").text
+    assert c.post("/login", data={"senha": "errada", "next": "/"}).status_code == 200
+    assert "Senha incorreta" in c.post("/login", data={"senha": "errada", "next": "/"}).text
+    _login_painel(c)
+    assert "Agendbarber" in c.get("/login").text or "Agendbarber" in c.get("/").text
+    r = c.get(f"/?data={SABADO}")
     assert r.status_code == 200 and "R$ 35.00" in r.text
+    assert 'aria-label="Outros dias"' in r.text  # faixa para trocar de dia
+    assert f'href="/?data={SABADO}"' in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
+    # nome + endereço + WhatsApp do dono pelo painel
+    assert c.get("/salao").status_code == 200 and "Nome do salão" in c.get("/salao").text
+    assert "WhatsApp do dono" in c.get("/salao").text
+    r = c.post(
+        "/salao",
+        data={"nome": "Navalha & Cia", "endereco": "Rua A, 1", "telefone_dono": "557581829675"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and db.nome_salao() == "Navalha & Cia"
+    assert db.endereco() == "Rua A, 1"
+    assert db.telefone_dono_cadastrado() == "557581829675"
+    assert "Navalha &amp; Cia" in c.get("/").text or "Navalha & Cia" in c.get("/").text
+    # profissionais: listar, adicionar, remover
+    assert c.get("/profissionais").status_code == 200 and "Adicionar profissional" in c.get("/profissionais").text
+    assert "Remover" in c.get("/profissionais").text
+    r = c.post("/profissionais/adicionar", data={"nome": "Ana", "especialidade": "sobrancelha"},
+               follow_redirects=False)
+    assert r.status_code == 303 and "ok=add" in r.headers["location"]
+    assert "Ana" in db.listar_barbeiros()
+    r = c.post("/profissionais/remover", data={"nome": "Thiago"}, follow_redirects=False)
+    assert r.status_code == 303 and "ok=rm" in r.headers["location"]
+    assert "Thiago" not in db.listar_barbeiros()
+    # salvar alterações (folgas)
+    nomes = list(db.listar_barbeiros())
+    r = c.post(
+        "/profissionais",
+        data={
+            "nome": nomes,
+            "especialidade": [db.listar_barbeiros()[n].get("especialidade", "") for n in nomes],
+            "folga_0": ["1"],
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and "ok=1" in r.headers["location"]
+    assert 1 in db.listar_barbeiros()[nomes[0]]["folgas"]
+    # sem chat (números particulares)
+    assert c.get("/sem-chat").status_code == 200 and "Sem chat" in c.get("/sem-chat").text
+    r = c.post("/sem-chat/adicionar", data={"telefone": "75988887777", "nome": "Amiga"},
+               follow_redirects=False)
+    assert r.status_code == 303 and db.eh_sem_bot("75988887777")
+    r = c.post("/sem-chat/remover", data={"telefone": "75988887777"}, follow_redirects=False)
+    assert r.status_code == 303 and not db.eh_sem_bot("75988887777")
+    # tabela de serviços no painel
+    assert c.get("/servicos").status_code == 200 and "Serviços e preços" in c.get("/servicos").text
+    r = c.post(
+        "/servicos",
+        data={
+            "nome": ["Corte", "Barba", ""],
+            "preco": ["42", "22.5", ""],
+            "minutos": ["30", "30", ""],
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and "ok=1" in r.headers["location"]
+    assert db.listar_servicos()["Corte"] == (42.0, 30)
+    assert db.listar_servicos()["Barba"] == (22.5, 30)
     r = c.post("/bloquear", data={"data": QUARTA, "barbeiro": "", "motivo": "Feriado"},
-               auth=("dono", "s3nha"), follow_redirects=False)
+               follow_redirects=False)
     assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]
-    assert "Data inválida" in c.get("/?data=xx", auth=("dono", "s3nha")).text
+    assert "Data inválida" in c.get("/?data=xx").text
+
+
+
+def test_painel_whatsapp_qr(monkeypatch):
+    """Página do QR: autentica, mostra status e PNG da Evolution — sem conversas."""
+    from fastapi.testclient import TestClient
+
+    import painel
+    from barbearia import evolution as evo
+
+    monkeypatch.setenv("PAINEL_SENHA", "s3nha")
+    monkeypatch.setattr(
+        evo, "status_para_painel",
+        lambda: {"conectado": False, "temQr": True, "idadeQrSegundos": 2},
+    )
+    monkeypatch.setattr(evo, "qr_png_bytes", lambda: b"\x89PNG\r\n\x1a\nfake")
+
+    c = TestClient(painel.app)
+    assert c.get("/whatsapp", follow_redirects=False).status_code == 303
+    _login_painel(c)
+    r = c.get("/whatsapp")
+    assert r.status_code == 200
+    assert "Escaneie o QR" in r.text and 'src="/whatsapp/qr.png' in r.text
+    assert "conversa" not in r.text.lower()
+    png = c.get("/whatsapp/qr.png")
+    assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
+
+    monkeypatch.setenv("TELEFONE_DONO", "557581829675")
+    monkeypatch.setattr(
+        evo, "status_para_painel",
+        lambda: {"conectado": True, "temQr": False, "numero": "5575999990000"},
+    )
+    monkeypatch.setattr(evo, "numero_conectado", lambda: "5575999990000")
+    r = c.get("/whatsapp")
+    assert r.status_code == 200 and "Conectado" in r.text
+    assert "5575999990000" in r.text  # aparelho do QR
+    assert "557581829675" in r.text   # dono cadastrado
+    assert "Desconectar celular" in r.text
+    assert 'action="/whatsapp/desconectar"' in r.text or "action=/whatsapp/desconectar" in r.text
+
+    chamado = {"logout": 0, "conectar": 0}
+    monkeypatch.setattr(evo, "logout", lambda: chamado.__setitem__("logout", chamado["logout"] + 1))
+    monkeypatch.setattr(evo, "conectar", lambda: chamado.__setitem__("conectar", chamado["conectar"] + 1) or {})
+    r = c.post("/whatsapp/desconectar", follow_redirects=False)
+    assert r.status_code == 303 and "/whatsapp" in r.headers["location"]
+    assert chamado["logout"] == 1 and chamado["conectar"] == 1
+
+
+def test_evolution_extrair_mensagem():
+    from barbearia import evolution as evo
+
+    assert evo.extrair_telefone("5511999999999@s.whatsapp.net") == "5511999999999"
+    assert evo.extrair_telefone("120363@g.us") is None
+    assert evo.extrair_texto_mensagem({"conversation": " oi "}) == "oi"
+    assert "áudio" in (evo.extrair_texto_mensagem({"audioMessage": {}}, "audioMessage") or "")

@@ -24,9 +24,10 @@ def tempo_digitando(balao):
     return round(min(6.0, 0.8 + len(balao) / 28) * random.uniform(0.85, 1.15), 1)
 
 
-# Respostas de emergência se a IA cair (variam para não soar repetido)
+# Fallback se a IA falhar — NUNCA falar de sistema/internet/travamento
 SEM_IA = [
-    "Opa, meu sistema deu uma travada aqui 😅 Me manda de novo em um minutinho?",
-    "Eita, deu uma instabilidade aqui. Já já te respondo, pode mandar de novo daqui a pouco?",
-    "Foi mal, a internet aqui oscilou. Tenta de novo rapidinho?",
+    "Desculpa, não peguei direito. Pode mandar de novo, por favor?",
+    "Poxa, me perde. Repete o que você precisa que eu te ajudo agora?",
+    "Não entendi bem aqui. Me fala de novo: quer marcar horário ou ver os serviços?",
+    "Opa, pode repetir? Assim eu te ajudo certinho — marcar, preço ou outra dúvida.",
 ]

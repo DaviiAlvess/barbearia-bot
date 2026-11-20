@@ -2,8 +2,8 @@
 Funciona com qualquer canal (terminal, WhatsApp...)."""
 from __future__ import annotations
 
+import json
 import logging
-import os
 import random
 import threading
 import time
@@ -11,9 +11,8 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import timedelta
 
-import config
-from barbearia import agenda, db, ferramentas, humanizar, persona
-from barbearia.ia import ErroIA
+from barbearia import agenda, db, ferramentas, guardrails, humanizar, persona
+from barbearia.ia import ErroIA, _limpar_part
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +23,8 @@ MAX_CARACTERES = 1500           # textos maiores são cortados (evita abuso e ga
 LIMITE_MENSAGENS = 12           # máximo de mensagens por cliente...
 JANELA_SEGUNDOS = 60            # ...dentro desta janela
 HORARIO_SILENCIO = (21, 8)      # não manda lembrete/avaliação entre 21h e 8h
+FOLLOWUP_MIN_HORAS = 2          # silêncio mínimo antes de retomar conversa esquecida
+FOLLOWUP_MAX_HORAS = 18         # depois disso, deixa quieto (próximo "oi" reabre)
 
 Enviar = Callable[[str, str], None]
 
@@ -55,6 +56,85 @@ def em_horario_de_silencio() -> bool:
     return h >= inicio or h < fim
 
 
+_PALAVRAS_ATENDIMENTO = (
+    "horário", "horario", "marcar", "agendar", "corte", "barba", "vaga",
+    "disponí", "disponi", "sábado", "sabado", "amanhã", "amanha", "hoje",
+    "preço", "preco", "serviço", "servico", "barbeiro", "quando", "às", "as ",
+)
+
+_CONFIRMACOES = {
+    "sim", "s", "ss", "ssim", "siim", "yes", "pode", "pode sim", "pode ser",
+    "fechou", "fecha", "fechado", "blz", "beleza", "show", "ok", "okay", "certo",
+    "isso", "isso aí", "isso ai", "uhum", "ahm", "confirma", "confirmo", "manda",
+    "marca", "pode marcar", "quero sim",
+}
+_NEGACOES = {
+    "nao", "não", "n", "nn", "no", "nop", "negativo", "deixa", "deixa quieto",
+    "depois", "agora nao", "agora não", "cancela", "melhor nao", "melhor não",
+}
+
+
+def telefone_dono() -> str:
+    """Número do dono = sempre o cadastrado (painel / TELEFONE_DONO), nunca o QR."""
+    return db.telefone_dono_cadastrado()
+
+
+def _eh_dono(telefone: str) -> bool:
+    """Compara com o número cadastrado do dono (com ou sem 55)."""
+    dono = telefone_dono()
+    if not dono:
+        return False
+    a, b = db.normalizar_telefone(telefone), db.normalizar_telefone(dono)
+    if a and b:
+        return a == b or a.endswith(b) or b.endswith(a)
+    # fallback (ex.: testes com TELEFONE_DONO=dono)
+    return (telefone or "").strip() == dono
+
+
+def _dica_resposta_curta(texto: str) -> str | None:
+    """Ajuda a IA a interpretar 'sim'/'não' curtos no WhatsApp."""
+    t = (texto or "").strip().lower()
+    t = t.replace("!", "").replace(".", "").replace(",", "").strip()
+    if t in _CONFIRMACOES:
+        return ("[Dica: o cliente confirmou com uma resposta curta. "
+                "Trate como SIM à sua última pergunta e avance (agendar/cancelar/etc.).]")
+    if t in _NEGACOES:
+        return ("[Dica: o cliente recusou/adiou com resposta curta. "
+                "Respeite, não insista; ofereça ajuda depois se fizer sentido.]")
+    return None
+
+
+def _textos_do_historico(hist: list[dict]) -> list[str]:
+    textos = []
+    for h in hist:
+        for p in h.get("parts") or []:
+            if "text" in p and p["text"]:
+                textos.append(str(p["text"]))
+    return textos
+
+
+def _parece_atendimento_aberto(hist: list[dict]) -> bool:
+    """True se a conversa parou no meio (pergunta aberta ou intenção de marcar sem fechar)."""
+    if not hist:
+        return False
+    textos = _textos_do_historico(hist)
+    if not textos:
+        return False
+    ultimo = textos[-1].strip()
+    if ultimo.endswith("?"):
+        return True
+    junto = " ".join(textos).lower()
+    if any(p in junto for p in _PALAVRAS_ATENDIMENTO):
+        # já agendou nesta conversa? (functionResponse de agendar com ok)
+        for h in hist:
+            for p in h.get("parts") or []:
+                fr = p.get("functionResponse") or {}
+                if fr.get("name") == "agendar" and (fr.get("response") or {}).get("ok"):
+                    return False
+        return True
+    return False
+
+
 class Atendente:
     def __init__(self, ia, enviar: Enviar | None = None):
         """ia: objeto com .gerar(instrucoes, historico, ferramentas)
@@ -68,7 +148,7 @@ class Atendente:
         """Manda mensagem por iniciativa do bot e guarda para dar contexto à próxima resposta."""
         if not self._enviar_canal:
             return
-        if telefone != os.getenv("TELEFONE_DONO"):
+        if not _eh_dono(telefone):
             db.guardar_aviso(telefone, texto)
         self._enviar_canal(telefone, texto)
 
@@ -77,16 +157,22 @@ class Atendente:
         texto = (texto or "").strip()[:MAX_CARACTERES]
         if not texto:
             return []
-        dono = os.getenv("TELEFONE_DONO")
-        if dono and telefone == dono and texto.startswith("#"):
+        if _eh_dono(telefone) and texto.startswith("#"):
             return [self._comando_dono(texto)]
 
         agora = time.time()
+        if db.eh_sem_bot(telefone):
+            log.info("Sem bot (particular): %s — não respondo", telefone)
+            return []
         if _excedeu_limite(telefone, agora):
             log.warning("Limite de mensagens excedido por %s", telefone)
             return []
 
-        with _travas[telefone]:
+        trava = _travas[telefone]
+        if not trava.acquire(timeout=90):
+            log.error("Timeout na trava de %s — outra resposta travou", telefone)
+            return [random.choice(humanizar.SEM_IA)]
+        try:
             hist, atualizado, humano_ate = db.carregar_conversa(telefone)
             if humano_ate > agora:
                 return []  # um atendente humano está cuidando dessa conversa
@@ -100,9 +186,20 @@ class Atendente:
                 texto_ia = (f"[Contexto: antes desta mensagem, você mandou para o cliente: "
                             f"\"{' | '.join(avisos)}\". Ele está respondendo a isso.]\n{texto}")
                 conversa_nova = False  # ele está respondendo a nós; não cumprimenta do zero
+            dica = _dica_resposta_curta(texto)
+            if dica:
+                texto_ia = f"{dica}\n{texto_ia}"
+                conversa_nova = False
 
-            instrucoes = persona.montar(db.obter_cliente(telefone), db.ultimo_atendimento(telefone),
-                                        conversa_nova)
+            pendentes = agenda.agendamentos_futuros(telefone)
+            modo_dono = _eh_dono(telefone)
+            instrucoes = persona.montar(
+                db.obter_cliente(telefone),
+                db.ultimo_atendimento(telefone),
+                conversa_nova,
+                pendentes=pendentes,
+                modo_dono=modo_dono,
+            )
             inicio_turno = len(hist)
             hist.append({"role": "user", "parts": [{"text": texto_ia}]})
 
@@ -112,21 +209,32 @@ class Atendente:
                 log.error("Falha na IA para %s: %s", telefone, e)
                 for aviso in avisos:  # devolve os avisos para não perder o contexto
                     db.guardar_aviso(telefone, aviso)
+                err = str(e).lower()
+                if "429" in err or "quota" in err or "resource_exhausted" in err:
+                    return [(
+                        "Tô com bastante movimento agora. Me manda de novo em alguns minutos "
+                        "que eu te atendo na hora, beleza?"
+                    )]
                 return [random.choice(humanizar.SEM_IA)]
 
             apagou = any(p.get("functionCall", {}).get("name") == "apagar_meus_dados"
                          for h in hist[inicio_turno:] for p in h["parts"])
             if not apagou:  # se o cliente pediu para apagar os dados, não guarda nem a conversa
                 db.salvar_conversa(telefone, _cortar_historico(hist), agora)
-            return humanizar.em_baloes(resposta) or ["Desculpa, não entendi bem. Pode me explicar de novo?"]
+            limpa = guardrails.sanitizar_resposta(resposta)
+            return humanizar.em_baloes(limpa) or ["Desculpa, não entendi bem. Pode me explicar de novo?"]
+        finally:
+            trava.release()
 
     def _rodar_ia(self, instrucoes: str, hist: list[dict], telefone: str) -> str:
         for _ in range(MAX_RODADAS_FERRAMENTA):
             conteudo = self.ia.gerar(instrucoes, hist, ferramentas.DECLARACOES)
-            hist.append(conteudo)
-            chamadas = [p["functionCall"] for p in conteudo["parts"] if "functionCall" in p]
+            # Guarda só campos aceitos pela API (sem thoughtSignature)
+            parts = [lp for p in conteudo.get("parts") or [] if (lp := _limpar_part(p))]
+            hist.append({"role": "model", "parts": parts})
+            chamadas = [p["functionCall"] for p in parts if "functionCall" in p]
             if not chamadas:
-                return "".join(p.get("text", "") for p in conteudo["parts"] if not p.get("thought"))
+                return "".join(p.get("text", "") for p in parts)
             respostas = []
             for c in chamadas:
                 resultado = ferramentas.executar(c["name"], c.get("args") or {}, telefone, self.enviar)
@@ -145,33 +253,92 @@ class Atendente:
 
     @staticmethod
     def _data_arg(arg: str):
-        hoje = agenda.agora().date()
+        """Aceita hoje, amanhã, sábado, 25/12, 2026-11-25…"""
         if not arg or arg.lower() == "hoje":
-            return hoje
-        if arg.lower().startswith("amanh"):
-            return hoje + timedelta(days=1)
-        if "/" in arg:  # aceita 25/12
-            dia, mes = arg.split("/")[:2]
-            d = hoje.replace(month=int(mes), day=int(dia))
-            return d if d >= hoje else d.replace(year=d.year + 1)
-        return agenda.ler_data(arg)
+            return agenda.agora().date()
+        info = agenda.interpretar_data(arg)
+        return agenda.ler_data(info["data"])
+
+    def _formatar_agenda_dia(self, d) -> str:
+        itens = agenda.agenda_do_dia(d)
+        rotulo = f"{agenda.DIAS_SEMANA[d.weekday()]} {d.strftime('%d/%m')}"
+        if not itens:
+            return f"📅 {rotulo}: nenhum horário marcado."
+        total = sum(i["preco"] or 0 for i in itens)
+        linhas = [
+            f"{i['inicio'][11:]} {i['barbeiro']}: {i['servico']} - {i['nome_cliente']} (#{i['id']})"
+            for i in itens
+        ]
+        return (f"📅 Agenda {rotulo} ({len(itens)} atendimentos, R$ {total:.2f}):\n"
+                + "\n".join(linhas))
+
+    def _formatar_agenda_semana(self, dias: int = 7) -> str:
+        resumo = agenda.resumo_dias(dias=dias)
+        linhas = []
+        for r in resumo:
+            if r["quantidade"]:
+                linhas.append(
+                    f"• {r['dia_semana'][:3]} {r['dd_mm']}: "
+                    f"{r['quantidade']} · R$ {r['total']:.2f}"
+                )
+            else:
+                linhas.append(f"• {r['dia_semana'][:3]} {r['dd_mm']}: —")
+        return (
+            f"📅 Próximos {dias} dias (use #agenda sábado ou #agenda 25/12 "
+            f"para o detalhe):\n" + "\n".join(linhas)
+        )
 
     def _executar_comando(self, cmd: str, args: list[str], texto: str) -> str:
         arg = args[0] if args else ""
         if cmd == "#agenda":
+            chave = (arg or "").strip().lower()
+            if chave in ("semana", "proximos", "próximos", "7", "7dias"):
+                return self._formatar_agenda_semana(7)
+            if chave in ("mes", "mês", "30", "30dias"):
+                return self._formatar_agenda_semana(30)
+            # Sem argumento: dia de hoje + resumo dos próximos com marcações
+            if not chave:
+                hoje = agenda.agora().date()
+                corpo = self._formatar_agenda_dia(hoje)
+                outros = [
+                    r for r in agenda.resumo_dias(inicio=hoje + timedelta(days=1), dias=6)
+                    if r["quantidade"]
+                ]
+                if outros:
+                    dicas = ", ".join(f"{r['dd_mm']} ({r['quantidade']})" for r in outros)
+                    corpo += (
+                        f"\n\n📌 Outros dias com horário: {dicas}.\n"
+                        f"Detalhe: #agenda amanha | #agenda sábado | #agenda semana"
+                    )
+                else:
+                    corpo += "\n\n(Outros dias: #agenda amanha | #agenda sábado | #agenda semana)"
+                return corpo
             d = self._data_arg(arg)
-            itens = agenda.agenda_do_dia(d)
-            if not itens:
-                return f"📅 {d.strftime('%d/%m')}: nenhum horário marcado."
-            total = sum(i["preco"] or 0 for i in itens)
-            linhas = [f"{i['inicio'][11:]} {i['barbeiro']}: {i['servico']} - {i['nome_cliente']} (#{i['id']})"
-                      for i in itens]
-            return (f"📅 Agenda {d.strftime('%d/%m')} ({len(itens)} atendimentos, R$ {total:.2f}):\n"
-                    + "\n".join(linhas))
+            return self._formatar_agenda_dia(d)
         if cmd == "#pausar" and arg:
             db.pausar_bot(arg, time.time() + 12 * 3600)
             return f"⏸️ Bot pausado para {arg} por 12h. Use #bot {arg} para religar."
+        if cmd in ("#semchat", "#privado") and arg:
+            nome = " ".join(args[1:]) if len(args) > 1 else ""
+            db.adicionar_sem_bot(arg, nome)
+            return (f"🔕 Sem chat no {db.normalizar_telefone(arg)}"
+                    + (f" ({nome})" if nome else "")
+                    + ". O bot não responde mais esse número. Painel → Sem chat, ou #comchat.")
+        if cmd == "#comchat" and arg:
+            if db.remover_sem_bot(arg):
+                db.pausar_bot(arg, 0)
+                return f"🔔 Chat religado para {db.normalizar_telefone(arg)}. O bot volta a atender."
+            return "Esse número não estava na lista sem chat."
+        if cmd == "#semchat" and not arg:
+            lista = db.listar_sem_bot()
+            if not lista:
+                return "Nenhum número sem chat. Use: #semchat <telefone> [nome]"
+            linhas = [f"• {i['telefone']}" + (f" ({i['nome']})" if i.get("nome") else "") for i in lista]
+            return "🔕 Sem chat (bot não responde):\n" + "\n".join(linhas)
         if cmd == "#bot" and arg:
+            if db.eh_sem_bot(arg):
+                return (f"⚠️ {arg} está em Sem chat (permanente). "
+                        f"Use #comchat {arg} para o bot voltar a atender.")
             db.pausar_bot(arg, 0)
             return f"▶️ Bot religado para {arg}."
         if cmd == "#cancelar" and arg.isdigit():
@@ -211,19 +378,24 @@ class Atendente:
             self.enviar(numero, mensagem)
             return f"📤 Enviado para {numero}."
         return ("Comandos do dono:\n"
-                "#agenda [hoje|amanha|25/12]\n"
+                "#agenda  (hoje + dica dos outros dias)\n"
+                "#agenda amanha|sábado|25/12|2026-11-25\n"
+                "#agenda semana  (resumo 7 dias)\n"
                 "#cancelar <id>\n"
                 "#fechar <data> [motivo]  (feriado, reforma...)\n"
                 "#folga <data> <barbeiro>\n"
                 "#abrir <data> [barbeiro]\n"
                 "#avaliacoes\n"
                 "#aviso <telefone> <mensagem>\n"
-                "#pausar <telefone>  (você assume a conversa)\n"
-                "#bot <telefone>  (religa o bot)")
+                "#pausar <telefone>  (você assume a conversa por 12h)\n"
+                "#bot <telefone>  (religa o bot)\n"
+                "#semchat <telefone> [nome]  (particular: bot NÃO responde)\n"
+                "#comchat <telefone>  (tira da lista sem chat)\n"
+                "#semchat  (lista os números sem chat)")
 
     # ------------------------------------------------------------------
     def mensagens_programadas(self) -> list[tuple[str, str]]:
-        """Lembretes e pedidos de avaliação que estão na hora de mandar: [(telefone, texto)]."""
+        """Lembretes, avaliações e retomada de conversas esquecidas: [(telefone, texto)]."""
         if em_horario_de_silencio():
             return []
         saida = [(lem["telefone"], self._texto_lembrete(lem)) for lem in agenda.lembretes_pendentes()]
@@ -236,10 +408,46 @@ class Atendente:
                 f"E aí{saud}, curtiu o resultado? Se puder, dá uma nota de 1 a 5 pro atendimento "
                 f"do {a['barbeiro']}. Ajuda muito a gente a melhorar!",
             ])))
+        saida.extend(self._followups_esquecidos())
+        return saida
+
+    def _followups_esquecidos(self) -> list[tuple[str, str]]:
+        """Retoma conversas que pararam no meio do atendimento (sem insistir demais)."""
+        agora = time.time()
+        saida = []
+        for row in db.conversas_esquecidas(
+            agora,
+            min_silencio=FOLLOWUP_MIN_HORAS * 3600,
+            max_idade=FOLLOWUP_MAX_HORAS * 3600,
+        ):
+            telefone = row["telefone"]
+            if not db.aceita_mensagens(telefone) or db.eh_sem_bot(telefone):
+                continue
+            try:
+                hist = json.loads(row["historico"]) if isinstance(row["historico"], str) else row["historico"]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not _parece_atendimento_aberto(hist or []):
+                continue
+            # já tem horário marcado: não fica cobrando; o lembrete de agenda cobre
+            if agenda.agendamentos_futuros(telefone):
+                db.marcar_followup(telefone, agora)
+                continue
+            cliente = db.obter_cliente(telefone) or {}
+            nome = (cliente.get("nome") or "").split(" ")[0]
+            saud = f", {nome}" if nome else ""
+            texto = random.choice([
+                f"Oi{saud}! Vi que a gente ficou no meio do papo. Ainda quer marcar o horário?",
+                f"E aí{saud}, conseguiu decidir? Se quiser, eu fecho o horário pra você por aqui.",
+                f"Oi{saud}, passando de novo: ainda posso te ajudar a marcar? Se mudou de ideia, "
+                f"é só falar 👍",
+            ])
+            db.marcar_followup(telefone, agora)
+            saida.append((telefone, texto))
         return saida
 
     def enviar_programadas(self) -> int:
-        """Manda lembretes e pedidos de avaliação. Chame de tempos em tempos (ex.: a cada 5 min)."""
+        """Manda lembretes, avaliações e follow-ups. Chame de tempos em tempos (ex.: a cada 5 min)."""
         mensagens = self.mensagens_programadas()
         for telefone, texto in mensagens:
             self.enviar(telefone, texto)
@@ -262,4 +470,4 @@ class Atendente:
             f"Estamos te esperando 💈",
             f"Passando pra lembrar{saud}: hoje às {lembrete['hora']} com o {lembrete['barbeiro']}. "
             f"Até daqui a pouco!",
-        ]) + f"\n📍 {config.ENDERECO}"
+        ]) + f"\n📍 {db.endereco()}"

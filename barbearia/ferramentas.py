@@ -1,18 +1,39 @@
 """Ferramentas que a IA pode chamar. É assim que ela consulta a agenda de verdade
 em vez de inventar horário ou preço."""
-import os
 import time
 
-import config
 from barbearia import agenda, db
 
 PAUSA_HUMANO_HORAS = 2
 
 DECLARACOES = [
     {
+        "name": "resolver_data",
+        "description": "Converte o que o cliente disse (hoje, amanhã, sábado, 21/11, 2026-11-21) "
+                       "na data certa e no dia da semana CORRETO. Use SEMPRE antes de falar "
+                       "qual dia da semana é, e antes de chamar ver_horarios_livres/agendar. "
+                       "Nunca invente dia da semana de cabeça.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "quando": {
+                    "type": "string",
+                    "description": "Texto do cliente: 'sábado', 'amanhã', '21/11', '2026-11-21'…",
+                },
+            },
+            "required": ["quando"],
+        },
+    },
+    {
         "name": "ver_horarios_livres",
-        "description": "Consulta os horários livres de um dia para um serviço. "
-                       "Use SEMPRE antes de oferecer ou confirmar um horário.",
+        "description": "Consulta a agenda REAL de um dia para um serviço: desconta o que já "
+                       "está marcado e só devolve horários em que a DURAÇÃO do serviço cabe "
+                       "inteira (sem bater em outro cliente, almoço ou fechamento). "
+                       "Use SEMPRE antes de oferecer/confirmar horário ou quando o cliente "
+                       "pedir 'todos os horários', 'o que tem vago', 'quais livres'. "
+                       "Precisa do serviço (a duração muda o que cabe). "
+                       "Data AAAA-MM-DD via resolver_data. Fale só com livres_por_barbeiro — "
+                       "nunca invente. ocupados_por_barbeiro mostra o que já foi preenchido.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -25,16 +46,70 @@ DECLARACOES = [
     },
     {
         "name": "agendar",
-        "description": "Marca o horário. Só chame depois que o cliente confirmou dia, hora e serviço "
-                       "e você já sabe o nome dele.",
+        "description": "Marca o horário. Só chame DEPOIS de: (1) ter o nome, (2) serviço da tabela, "
+                       "(3) data via resolver_data, (4) horários via ver_horarios_livres, "
+                       "(5) cliente confirmou com 'sim'. A data deve ser AAAA-MM-DD.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nome_cliente": {"type": "string"},
+                "data": {"type": "string", "description": "AAAA-MM-DD (de resolver_data)"},
+                "hora": {"type": "string", "description": "HH:MM (deve estar em ver_horarios_livres)"},
+                "servico": {"type": "string", "description": "Nome EXATO da tabela de serviços"},
+                "barbeiro": {"type": "string", "description": "Opcional. Se vazio, pega quem estiver livre"},
+            },
+            "required": ["nome_cliente", "data", "hora", "servico"],
+        },
+    },
+    {
+        "name": "checar_horario",
+        "description": "MODO DONO: verifica se um horário pedido está livre na agenda "
+                       "(considerando o serviço). Se estiver ocupado, devolve quem está lá "
+                       "(ocupado_com com nome_cliente), o mais próximo e os vagos até fechar. "
+                       "Use SEMPRE antes de agendar_para_cliente.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "AAAA-MM-DD"},
+                "hora": {"type": "string", "description": "HH:MM pedida"},
+                "servico": {"type": "string"},
+                "barbeiro": {"type": "string", "description": "Opcional. Nome do profissional"},
+            },
+            "required": ["data", "hora", "servico"],
+        },
+    },
+    {
+        "name": "quem_no_horario",
+        "description": "MODO DONO: responde 'quem está nesse horário?' / 'quem é às 15h?'. "
+                       "Devolve nome do cliente, serviço, início/fim e telefone se houver. "
+                       "Não invente — só o que a ferramenta retornar.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "AAAA-MM-DD (hoje se o dono não disser)"},
+                "hora": {"type": "string", "description": "HH:MM"},
+                "barbeiro": {"type": "string", "description": "Opcional"},
+            },
+            "required": ["data", "hora"],
+        },
+    },
+    {
+        "name": "agendar_para_cliente",
+        "description": "MODO DONO: marca horário para um cliente (nome) na agenda. "
+                       "Só depois de checar_horario e o dono aprovar o horário. "
+                       "telefone_cliente é opcional (WhatsApp do cliente).",
         "parameters": {
             "type": "object",
             "properties": {
                 "nome_cliente": {"type": "string"},
                 "data": {"type": "string", "description": "AAAA-MM-DD"},
-                "hora": {"type": "string", "description": "HH:MM"},
+                "hora": {"type": "string", "description": "HH:MM aprovada"},
                 "servico": {"type": "string"},
-                "barbeiro": {"type": "string", "description": "Opcional. Se vazio, pega quem estiver livre"},
+                "barbeiro": {"type": "string", "description": "Opcional"},
+                "telefone_cliente": {
+                    "type": "string",
+                    "description": "Opcional. WhatsApp do cliente com DDD",
+                },
             },
             "required": ["nome_cliente", "data", "hora", "servico"],
         },
@@ -84,14 +159,22 @@ DECLARACOES = [
         },
     },
     {
+        "name": "ver_tabela_servicos",
+        "description": "ÚNICA fonte de serviços/preços. Use antes de citar qualquer serviço. "
+                       "Nunca invente item que não venha nesta resposta.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "ver_fidelidade",
         "description": "Mostra quantos atendimentos o cliente já fez e quanto falta para o brinde do cartão fidelidade.",
         "parameters": {"type": "object", "properties": {}},
     },
+
     {
         "name": "lembrar_cliente",
         "description": "Guarda o nome do cliente, o barbeiro preferido ou uma observação útil "
-                       "(ex.: 'gosta de degradê na régua 1'). Use assim que descobrir algo assim.",
+                       "(ex.: 'gosta de degradê na régua 1'). Use ASSIM QUE o cliente disser o nome "
+                       "(primeiro contato) ou qualquer preferência — não espere até agendar.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -157,6 +240,8 @@ def executar(nome, args, telefone, enviar=None):
     enviar(telefone, texto) é usado para mandar mensagem para outras pessoas
     (dono da barbearia, clientes da lista de espera)."""
     try:
+        if nome == "resolver_data":
+            return agenda.interpretar_data(args.get("quando") or args.get("data") or "")
         if nome == "ver_horarios_livres":
             return agenda.horarios_livres(args.get("data"), args.get("servico", ""), args.get("barbeiro"))
         if nome == "agendar":
@@ -164,6 +249,30 @@ def executar(nome, args, telefone, enviar=None):
                                args.get("hora"), args.get("servico", ""), args.get("barbeiro"))
             db.salvar_cliente(telefone, nome=args.get("nome_cliente"))
             return r
+        if nome == "checar_horario":
+            return agenda.checar_horario_pedido(
+                args.get("data"), args.get("hora"), args.get("servico", ""), args.get("barbeiro"),
+            )
+        if nome == "quem_no_horario":
+            return agenda.quem_no_horario(
+                args.get("data"), args.get("hora"), args.get("barbeiro"),
+            )
+        if nome == "agendar_para_cliente":
+            from barbearia.atendente import _eh_dono
+            if not _eh_dono(telefone):
+                return {"erro": "Só o dono cadastrado pode marcar horário para outra pessoa."}
+            tel_informado = db.normalizar_telefone(args.get("telefone_cliente") or "")
+            tel_cli = tel_informado or f"90{int(time.time()) % 10**9:09d}"
+            nome_cli = (args.get("nome_cliente") or "").strip()
+            if not nome_cli:
+                return {"erro": "Informe o nome da pessoa."}
+            r = agenda.agendar(
+                tel_cli, nome_cli, args.get("data"), args.get("hora"),
+                args.get("servico", ""), args.get("barbeiro"),
+            )
+            if tel_informado:
+                db.salvar_cliente(tel_cli, nome=nome_cli)
+            return {**r, "telefone_cliente": tel_cli, "nome_cliente": nome_cli}
         if nome == "meus_agendamentos":
             return {"agendamentos": agenda.agendamentos_futuros(telefone)}
         if nome == "cancelar_agendamento":
@@ -181,6 +290,12 @@ def executar(nome, args, telefone, enviar=None):
         if nome == "entrar_lista_espera":
             return agenda.entrar_lista_espera(telefone, args.get("data"), args.get("servico", ""),
                                               args.get("barbeiro"))
+        if nome == "ver_tabela_servicos":
+            tabela = [
+                {"servico": n, "preco": p, "minutos": m}
+                for n, (p, m) in db.listar_servicos().items()
+            ]
+            return {"servicos": tabela, "texto": db.tabela_servicos_texto()}
         if nome == "ver_fidelidade":
             return agenda.fidelidade(telefone)
         if nome == "lembrar_cliente":
@@ -191,7 +306,8 @@ def executar(nome, args, telefone, enviar=None):
             return {"ok": True}
         if nome == "registrar_avaliacao":
             r = agenda.registrar_avaliacao(telefone, args.get("nota"), args.get("comentario"))
-            dono = os.getenv("TELEFONE_DONO")
+            from barbearia.atendente import telefone_dono
+            dono = telefone_dono()
             if enviar and dono and r["nota"] <= 3:
                 enviar(dono, f"⚠️ Avaliação {r['nota']}/5 para {r['barbeiro']} (cliente {telefone}): "
                              f"{args.get('comentario') or 'sem comentário'}")
@@ -208,9 +324,10 @@ def executar(nome, args, telefone, enviar=None):
             return {"ok": True, "horarios_cancelados": cancelados}
         if nome == "chamar_atendente_humano":
             db.pausar_bot(telefone, time.time() + PAUSA_HUMANO_HORAS * 3600)
-            dono = os.getenv("TELEFONE_DONO")
+            from barbearia.atendente import telefone_dono
+            dono = telefone_dono()
             if enviar and dono:
-                enviar(dono, f"🔔 {config.NOME_BARBEARIA}: cliente {telefone} precisa de atendimento. "
+                enviar(dono, f"🔔 {db.nome_salao()}: cliente {telefone} precisa de atendimento. "
                             f"Motivo: {args.get('motivo')}")
             return {"ok": True, "info": "Um atendente vai assumir. Avise o cliente de forma natural."}
         return {"erro": f"Ferramenta desconhecida: {nome}"}

@@ -1,10 +1,14 @@
 """
 Configuração da barbearia.
-Edite este arquivo para colocar os dados reais da sua barbearia:
-nome, endereço, barbeiros, serviços, preços e horários.
+Edite este arquivo para endereço, barbeiros, serviços, preços e horários.
+O nome do salão também pode ser definido no painel web (Salão).
 """
 
-NOME_BARBEARIA = "Barbearia Navalha de Ouro"
+# Marca do aplicativo (fixa)
+NOME_APP = "Agendbarber"
+
+# Nome do salão (padrão). O dono pode trocar no painel → Salão.
+NOME_BARBEARIA = "Meu Salão"
 ENDERECO = "Rua Exemplo, 123 - Centro, Feira de Santana - BA"
 FUSO_HORARIO = "America/Bahia"
 
@@ -39,7 +43,8 @@ BARBEIROS = {
     "Thiago": {"folgas": [5], "especialidade": "platinado, luzes e pigmentação"},
 }
 
-# Serviços: nome -> (preço em reais, duração em minutos)
+# Serviços padrão: nome -> (preço em reais, duração em minutos).
+# No painel web (Serviços) dá para editar; o que estiver lá vale para o bot.
 SERVICOS = {
     "Corte": (35.00, 30),
     "Barba": (25.00, 30),

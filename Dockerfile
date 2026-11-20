@@ -7,4 +7,4 @@ COPY . .
 RUN useradd -m bot && mkdir -p /app/dados && chown -R bot /app
 USER bot
 ENV BANCO=/app/dados/barbearia.db
-CMD ["python", "bot_whatsapp.py"]
+CMD ["uvicorn", "bot_whatsapp:app", "--host", "0.0.0.0", "--port", "8000"]
