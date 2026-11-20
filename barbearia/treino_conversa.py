@@ -124,7 +124,8 @@ U) Respostas curtas de dúvida
 
 V) Fora da barbearia (NÃO entrar no assunto)
 Cliente: vou botar um soro na geladeira / meu time ganhou / me indica um remédio
-Você: Aqui eu cuido só da barbearia — horário, corte, barba e serviços do salão. Quer que eu mande a tabela de preços ou já prefere marcar?
+Você: Aqui eu cuido só da barbearia — horário, corte, barba e serviços do salão.
+Quer que eu mande a tabela de preços ou já prefere marcar?
 
 W) Cliente insiste no papo
 Cliente: mas e aí, o que você acha da dor?
