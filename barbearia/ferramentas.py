@@ -26,10 +26,14 @@ DECLARACOES = [
     },
     {
         "name": "ver_horarios_livres",
-        "description": "Consulta os horários livres de um dia para um serviço. "
-                       "Use SEMPRE antes de oferecer ou confirmar um horário. "
-                       "A data deve ser AAAA-MM-DD (pegue com resolver_data). "
-                       "O campo dia_semana da resposta é a verdade — use-o ao falar com o cliente.",
+        "description": "Consulta a agenda REAL de um dia para um serviço: desconta o que já "
+                       "está marcado e só devolve horários em que a DURAÇÃO do serviço cabe "
+                       "inteira (sem bater em outro cliente, almoço ou fechamento). "
+                       "Use SEMPRE antes de oferecer/confirmar horário ou quando o cliente "
+                       "pedir 'todos os horários', 'o que tem vago', 'quais livres'. "
+                       "Precisa do serviço (a duração muda o que cabe). "
+                       "Data AAAA-MM-DD via resolver_data. Fale só com livres_por_barbeiro — "
+                       "nunca invente. ocupados_por_barbeiro mostra o que já foi preenchido.",
         "parameters": {
             "type": "object",
             "properties": {

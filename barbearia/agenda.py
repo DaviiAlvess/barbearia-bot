@@ -201,7 +201,29 @@ def _cabe(inicio, fim, d, ocupados):
     return all(not (inicio < o_fim and fim > o_ini) for o_ini, o_fim in ocupados)
 
 
+def _ocupados_detalhe(con, barbeiro, d: date) -> list[dict]:
+    rows = con.execute(
+        """SELECT inicio, fim, servico, nome_cliente FROM agendamentos
+           WHERE barbeiro = ? AND status = 'confirmado' AND inicio LIKE ?
+           ORDER BY inicio""",
+        (barbeiro, d.isoformat() + "%"),
+    ).fetchall()
+    return [
+        {
+            "inicio": r["inicio"][11:16],
+            "fim": r["fim"][11:16],
+            "servico": r["servico"],
+        }
+        for r in rows
+    ]
+
+
 def horarios_livres(data_txt, servico, barbeiro=None):
+    """Horários em que o serviço INTEIRO cabe — desconta o que já está marcado.
+
+    Um slot só entra se início+duração não bater em outro atendimento, almoço,
+    folga ou fora do expediente. Por isso "todos os vagos" depende do serviço.
+    """
     d = ler_data(data_txt)
     servico = achar_servico(servico)
     barbeiro = achar_barbeiro(barbeiro)
@@ -225,19 +247,36 @@ def horarios_livres(data_txt, servico, barbeiro=None):
                 "outros_barbeiros_no_dia": barbeiros_do_dia(d)}
 
     abre, fecha = expediente(d)
-    resultado = {}
+    livres_por = {}
+    ocupados_por = {}
     with db.conexao() as con:
         for b in equipe:
             ocup = _ocupados(con, b, d)
+            ocupados_por[b] = _ocupados_detalhe(con, b, d)
             livres, t = [], abre
             while t + duracao <= fecha:
                 if _cabe(t, t + duracao, d, ocup):
                     livres.append(t.strftime("%H:%M"))
                 t += passo
-            resultado[b] = livres
-    return {"data": d.isoformat(), "dia_semana": DIAS_SEMANA[d.weekday()],
-            "servico": servico, "preco": preco, "duracao_min": mins,
-            "livres_por_barbeiro": resultado}
+            livres_por[b] = livres
+
+    total_livres = sum(len(v) for v in livres_por.values())
+    return {
+        "data": d.isoformat(),
+        "dia_semana": DIAS_SEMANA[d.weekday()],
+        "servico": servico,
+        "preco": preco,
+        "duracao_min": mins,
+        "intervalo_min": config.INTERVALO_AGENDA,
+        "livres_por_barbeiro": livres_por,
+        "ocupados_por_barbeiro": ocupados_por,
+        "total_livres": total_livres,
+        "regra": (
+            f"Só entram horários em que o serviço '{servico}' ({mins} min) cabe inteiro, "
+            "sem sobrepor atendimento já marcado, almoço ou fechamento. "
+            "Nunca invente horário fora de livres_por_barbeiro."
+        ),
+    }
 
 
 def agendar(telefone, nome_cliente, data_txt, hora, servico, barbeiro=None):

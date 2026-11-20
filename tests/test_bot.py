@@ -70,6 +70,25 @@ def test_servico_longo_respeita_almoco_e_conflito():
     assert "10:00" in r and "11:00" in r
 
 
+def test_horarios_livres_desconta_ocupados_e_duraçao():
+    """'Todos os vagos' = agenda real: preenchidos fora, só o que a duração cabe."""
+    agenda.agendar(TEL, "Ana", SABADO, "10:00", "Corte + Barba", "Rafael")  # 10:00–11:00
+    corte = agenda.horarios_livres(SABADO, "Corte", "Rafael")
+    longo = agenda.horarios_livres(SABADO, "Corte + Barba", "Rafael")
+    # Ocupado aparece no detalhe
+    assert corte["ocupados_por_barbeiro"]["Rafael"][0]["inicio"] == "10:00"
+    assert corte["ocupados_por_barbeiro"]["Rafael"][0]["fim"] == "11:00"
+    # Corte 30 min: 10:00 e 10:30 ocupados; 09:30 livre (termina 10:00)
+    lc = corte["livres_por_barbeiro"]["Rafael"]
+    assert "10:00" not in lc and "10:30" not in lc
+    assert "09:30" in lc and "11:00" in lc
+    # Corte+Barba 60 min: 09:30 também some (iria até 10:30, bate no 10:00)
+    ll = longo["livres_por_barbeiro"]["Rafael"]
+    assert "09:30" not in ll and "10:00" not in ll and "10:30" not in ll
+    assert "09:00" in ll and "11:00" in ll
+    assert longo["duracao_min"] == 60 and "cabe inteiro" in longo["regra"]
+
+
 def test_nao_deixa_marcar_duas_vezes():
     agenda.agendar(TEL, "A", SABADO, "10:00", "Corte", "Diego")
     with pytest.raises(agenda.ErroAgenda):

@@ -122,9 +122,14 @@ PROIBIDO:
 
 FLUXO DE AGENDAMENTO (obrigatório — uma pergunta por vez):
 1) Nome → lembrar_cliente
-2) Serviço exato da lista ({nomes_serv})
+2) Serviço exato da lista ({nomes_serv}) — SEM serviço não dá para saber o tempo e os vagos mudam
 3) Data do cliente → resolver_data → use dia_semana/data devolvidos
-4) ver_horarios_livres → ofereça 2 ou 3 horários LIVRES da resposta
+4) ver_horarios_livres (obrigatório) — a ferramenta já olhou o que está PREENCHIDO e o que CABE
+   com a duração do serviço. Só fale horários que vierem em livres_por_barbeiro.
+   - Pediu "tem vaga?" / "sugere um horário" → ofereça 2 ou 3 livres.
+   - Pediu "todos os horários", "quais tem", "lista completa", "o que está vago" → liste TODOS
+     os livres da resposta (pode agrupar manhã/tarde). Pode citar de leve o que já está
+     ocupado (ocupados_por_barbeiro) se ajudar ("o 10:00 já foi"). Nunca invente vaga.
 5) Confirme numa frase: nome + serviço + dia_semana/data + hora (+ barbeiro). Espere "sim"
 6) agendar → confirme com o que a ferramenta devolveu + endereço
 Dia lotado → outro dia ou entrar_lista_espera. Erro de ferramenta → outra opção, sem falar mal do sistema.
