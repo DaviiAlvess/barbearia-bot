@@ -9,13 +9,13 @@ import requests
 
 log = logging.getLogger(__name__)
 
-MODELO = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-# Se o modelo do .env sumir na API do Google, tenta nesta ordem.
+MODELO = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Se o modelo do .env sumir na API do Google, tenta nesta ordem (prioriza rápido).
 FALLBACKS = [
-    "gemini-3.5-flash",
-    "gemini-3.6-flash",
-    "gemini-3.8-flash",
     "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
     "gemini-flash-latest",
 ]
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
@@ -53,8 +53,13 @@ class Gemini:
         corpo = {
             "systemInstruction": {"parts": [{"text": instrucoes}]},
             "contents": historico,
-            "tools": [{"functionDeclarations": ferramentas}],
-            "generationConfig": {"temperature": self.temperatura, "maxOutputTokens": 1024},
+            "tools": [{"functionDeclarations": ferramentas}] if ferramentas else [],
+            "generationConfig": {
+                "temperature": self.temperatura,
+                "maxOutputTokens": 1024,
+                # Sem "thinking": resposta em segundos, não em ~1 min
+                "thinkingConfig": {"thinkingBudget": 0},
+            },
         }
         ultimo_erro = None
         candidatos = self._modelos_candidatos()
