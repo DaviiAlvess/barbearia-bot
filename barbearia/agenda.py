@@ -389,7 +389,7 @@ def lembretes_pendentes():
                   and n.hour >= 18 and falta > timedelta(hours=2)):
                 tipo = "vespera"
                 con.execute("UPDATE agendamentos SET lembrete_vespera = 1 WHERE id = ?", (r["id"],))
-            if tipo and db.aceita_mensagens(r["telefone"]):
+            if tipo and db.aceita_mensagens(r["telefone"]) and not db.eh_sem_bot(r["telefone"]):
                 saida.append({"tipo": tipo, "telefone": r["telefone"], "nome": r["nome_cliente"],
                               "servico": r["servico"], "barbeiro": r["barbeiro"],
                               "hora": ini.strftime("%H:%M"), "data": ini.strftime("%d/%m"),

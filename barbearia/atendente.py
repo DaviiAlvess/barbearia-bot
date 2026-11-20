@@ -146,6 +146,9 @@ class Atendente:
             return [self._comando_dono(texto)]
 
         agora = time.time()
+        if db.eh_sem_bot(telefone):
+            log.info("Sem bot (particular): %s — não respondo", telefone)
+            return []
         if _excedeu_limite(telefone, agora):
             log.warning("Limite de mensagens excedido por %s", telefone)
             return []
@@ -259,7 +262,27 @@ class Atendente:
         if cmd == "#pausar" and arg:
             db.pausar_bot(arg, time.time() + 12 * 3600)
             return f"⏸️ Bot pausado para {arg} por 12h. Use #bot {arg} para religar."
+        if cmd in ("#semchat", "#privado") and arg:
+            nome = " ".join(args[1:]) if len(args) > 1 else ""
+            db.adicionar_sem_bot(arg, nome)
+            return (f"🔕 Sem chat no {db.normalizar_telefone(arg)}"
+                    + (f" ({nome})" if nome else "")
+                    + ". O bot não responde mais esse número. Painel → Sem chat, ou #comchat.")
+        if cmd == "#comchat" and arg:
+            if db.remover_sem_bot(arg):
+                db.pausar_bot(arg, 0)
+                return f"🔔 Chat religado para {db.normalizar_telefone(arg)}. O bot volta a atender."
+            return "Esse número não estava na lista sem chat."
+        if cmd == "#semchat" and not arg:
+            lista = db.listar_sem_bot()
+            if not lista:
+                return "Nenhum número sem chat. Use: #semchat <telefone> [nome]"
+            linhas = [f"• {i['telefone']}" + (f" ({i['nome']})" if i.get("nome") else "") for i in lista]
+            return "🔕 Sem chat (bot não responde):\n" + "\n".join(linhas)
         if cmd == "#bot" and arg:
+            if db.eh_sem_bot(arg):
+                return (f"⚠️ {arg} está em Sem chat (permanente). "
+                        f"Use #comchat {arg} para o bot voltar a atender.")
             db.pausar_bot(arg, 0)
             return f"▶️ Bot religado para {arg}."
         if cmd == "#cancelar" and arg.isdigit():
@@ -306,8 +329,11 @@ class Atendente:
                 "#abrir <data> [barbeiro]\n"
                 "#avaliacoes\n"
                 "#aviso <telefone> <mensagem>\n"
-                "#pausar <telefone>  (você assume a conversa)\n"
-                "#bot <telefone>  (religa o bot)")
+                "#pausar <telefone>  (você assume a conversa por 12h)\n"
+                "#bot <telefone>  (religa o bot)\n"
+                "#semchat <telefone> [nome]  (particular: bot NÃO responde)\n"
+                "#comchat <telefone>  (tira da lista sem chat)\n"
+                "#semchat  (lista os números sem chat)")
 
     # ------------------------------------------------------------------
     def mensagens_programadas(self) -> list[tuple[str, str]]:
@@ -337,7 +363,7 @@ class Atendente:
             max_idade=FOLLOWUP_MAX_HORAS * 3600,
         ):
             telefone = row["telefone"]
-            if not db.aceita_mensagens(telefone):
+            if not db.aceita_mensagens(telefone) or db.eh_sem_bot(telefone):
                 continue
             try:
                 hist = json.loads(row["historico"]) if isinstance(row["historico"], str) else row["historico"]

@@ -181,6 +181,7 @@ def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool 
 <a href="/profissionais">Profissionais</a>
 <a href="/whatsapp">WhatsApp</a>
 <a href="/salao">Salão</a>
+<a href="/sem-chat">Sem chat</a>
 <a class="sair" href="/sair">Sair</a></nav>"""
     salao = db.nome_salao()
     return HTMLResponse(f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
@@ -367,6 +368,78 @@ def salvar_salao(nome: str = Form(...), endereco: str = Form(...)):
     except ValueError as exc:
         return RedirectResponse("/salao?erro=" + quote(str(exc)), status_code=303)
     return RedirectResponse("/salao?ok=1", status_code=303)
+
+
+@app.get("/sem-chat", dependencies=[Depends(autenticar)])
+def ver_sem_chat(ok: str | None = None, erro: str | None = None):
+    """Números particulares: o bot não responde (amiga, família, etc.)."""
+    msg = ""
+    if ok == "add":
+        msg = '<p class="ok">Número adicionado. O bot não vai mais responder essa conversa.</p>'
+    elif ok == "rm":
+        msg = '<p class="ok">Número removido. O bot volta a atender se a pessoa mandar mensagem.</p>'
+    elif ok:
+        msg = '<p class="ok">Salvo.</p>'
+    if erro:
+        msg = f'<p class="erro">{e(erro)}</p>'
+    itens = db.listar_sem_bot()
+    linhas = ""
+    forms_rm = ""
+    for i, item in enumerate(itens):
+        fid = f"rm{i}"
+        nome = e(item.get("nome") or "—")
+        tel = e(item["telefone"])
+        forms_rm += (
+            f'<form id="{fid}" method=post action=/sem-chat/remover style="display:none">'
+            f'<input type=hidden name=telefone value="{tel}"></form>'
+        )
+        linhas += (
+            f"<tr><td>{tel}</td><td>{nome}</td>"
+            f'<td><button class=perigo type=submit form="{fid}">Tirar</button></td></tr>'
+        )
+    tabela = (
+        f"{forms_rm}<table><tr><th>Telefone</th><th>Quem</th><th></th></tr>{linhas}</table>"
+        if itens else
+        '<p class="vazio">Nenhum número ainda. Adicione amigos, família ou quem você '
+        "quer atender na mão — o bot fica quieto.</p>"
+    )
+    corpo = f"""<div class=card>
+    <h2>Sem chat (particular)</h2>
+    <p class=vazio>Números nesta lista <b>não recebem resposta do bot</b>.
+    Use para conversar com amiga, amigo, família etc. sem o atendimento automático entrar.
+    Também dá pelo WhatsApp do dono: <code>#semchat 75999990000 Maria</code></p>
+    {msg}
+    {tabela}
+    </div>
+    <div class=card>
+    <h3>Adicionar número</h3>
+    <form method=post action=/sem-chat/adicionar class=form-row>
+      <div><label>Telefone (com DDD)</label>
+      <input name=telefone required placeholder="75999990000" inputmode=numeric></div>
+      <div><label>Nome (opcional)</label>
+      <input name=nome maxlength=60 placeholder="Ex.: Maria"></div>
+      <div style="align-self:end"><button type=submit>Adicionar</button></div>
+    </form>
+    </div>"""
+    return pagina("Sem chat", corpo)
+
+
+@app.post("/sem-chat/adicionar", dependencies=[Depends(autenticar)])
+def adicionar_sem_chat(telefone: str = Form(...), nome: str = Form("")):
+    try:
+        db.adicionar_sem_bot(telefone, nome)
+    except ValueError as exc:
+        return RedirectResponse("/sem-chat?erro=" + quote(str(exc)), status_code=303)
+    return RedirectResponse("/sem-chat?ok=add", status_code=303)
+
+
+@app.post("/sem-chat/remover", dependencies=[Depends(autenticar)])
+def remover_sem_chat(telefone: str = Form(...)):
+    if not db.remover_sem_bot(telefone):
+        return RedirectResponse(
+            "/sem-chat?erro=" + quote("Número não encontrado."), status_code=303,
+        )
+    return RedirectResponse("/sem-chat?ok=rm", status_code=303)
 
 
 DIAS_FOLGA = [

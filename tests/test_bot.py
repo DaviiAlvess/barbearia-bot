@@ -220,6 +220,19 @@ def test_comandos_do_dono(monkeypatch):
     assert "Comandos" in bot.responder("dono", "#ajuda")[0]
 
 
+def test_sem_chat_bot_nao_responde(monkeypatch):
+    """Número particular: bot fica quieto; dá para tirar da lista e voltar."""
+    monkeypatch.setenv("TELEFONE_DONO", "dono")
+    bot = Atendente(FakeIA(["Oi! Qual é o seu nome?", "E aí de novo!"]))
+    assert bot.responder(TEL, "oi")  # ainda atende
+    assert "Sem chat" in bot.responder("dono", f"#semchat {TEL} Maria")[0]
+    assert db.eh_sem_bot(TEL)
+    assert bot.responder(TEL, "oi sumiu?") == []  # quieto
+    assert "religado" in bot.responder("dono", f"#comchat {TEL}")[0].lower()
+    assert not db.eh_sem_bot(TEL)
+    assert "de novo" in bot.responder(TEL, "oi de novo")[0]
+
+
 def test_ia_fora_do_ar_responde_humano():
     class Quebrada:
         def gerar(self, *a):
@@ -467,6 +480,13 @@ def test_painel(monkeypatch):
     )
     assert r.status_code == 303 and "ok=1" in r.headers["location"]
     assert 1 in db.listar_barbeiros()[nomes[0]]["folgas"]
+    # sem chat (números particulares)
+    assert c.get("/sem-chat").status_code == 200 and "Sem chat" in c.get("/sem-chat").text
+    r = c.post("/sem-chat/adicionar", data={"telefone": "75988887777", "nome": "Amiga"},
+               follow_redirects=False)
+    assert r.status_code == 303 and db.eh_sem_bot("75988887777")
+    r = c.post("/sem-chat/remover", data={"telefone": "75988887777"}, follow_redirects=False)
+    assert r.status_code == 303 and not db.eh_sem_bot("75988887777")
     # tabela de serviços no painel
     assert c.get("/servicos").status_code == 200 and "Serviços e preços" in c.get("/servicos").text
     r = c.post(

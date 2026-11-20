@@ -259,6 +259,72 @@ def nome_salao() -> str:
     return (config.NOME_BARBEARIA or "Meu Salão").strip()
 
 
+def normalizar_telefone(telefone: str) -> str:
+    return "".join(c for c in (telefone or "") if c.isdigit())
+
+
+def listar_sem_bot() -> list[dict[str, str]]:
+    """Números em que o bot NÃO conversa (amigos, família, particular)."""
+    raw = obter_config("sem_bot", "[]") or "[]"
+    try:
+        dados = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    saida = []
+    if isinstance(dados, list):
+        for item in dados:
+            if isinstance(item, str):
+                tel = normalizar_telefone(item)
+                if tel:
+                    saida.append({"telefone": tel, "nome": ""})
+            elif isinstance(item, dict):
+                tel = normalizar_telefone(str(item.get("telefone") or ""))
+                if tel:
+                    saida.append({"telefone": tel, "nome": str(item.get("nome") or "")[:60]})
+    return saida
+
+
+def _salvar_sem_bot(itens: list[dict[str, str]]) -> None:
+    salvar_config("sem_bot", json.dumps(itens, ensure_ascii=False))
+
+
+def adicionar_sem_bot(telefone: str, nome: str = "") -> None:
+    tel = normalizar_telefone(telefone)
+    if len(tel) < 10:
+        raise ValueError("Informe um telefone válido com DDD (ex.: 75999990000).")
+    itens = listar_sem_bot()
+    for i in itens:
+        if i["telefone"] == tel or i["telefone"].endswith(tel) or tel.endswith(i["telefone"]):
+            i["nome"] = (nome or i["nome"])[:60]
+            _salvar_sem_bot(itens)
+            return
+    itens.append({"telefone": tel, "nome": (nome or "").strip()[:60]})
+    _salvar_sem_bot(itens)
+
+
+def remover_sem_bot(telefone: str) -> bool:
+    tel = normalizar_telefone(telefone)
+    itens = listar_sem_bot()
+    novos = [i for i in itens
+             if not (i["telefone"] == tel or i["telefone"].endswith(tel) or tel.endswith(i["telefone"]))]
+    if len(novos) == len(itens):
+        return False
+    _salvar_sem_bot(novos)
+    return True
+
+
+def eh_sem_bot(telefone: str) -> bool:
+    """True = bot deve ficar quieto (conversa particular)."""
+    n = normalizar_telefone(telefone)
+    if not n:
+        return False
+    for i in listar_sem_bot():
+        x = i["telefone"]
+        if n == x or n.endswith(x) or x.endswith(n):
+            return True
+    return False
+
+
 def _servicos_padrao() -> dict[str, tuple[float, int]]:
     import config
     return {str(n): (float(p), int(m)) for n, (p, m) in config.SERVICOS.items()}
