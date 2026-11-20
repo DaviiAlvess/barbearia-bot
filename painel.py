@@ -393,15 +393,20 @@ def ver_whatsapp():
         return pagina("WhatsApp", corpo, refresh=30)
 
     if st.get("temQr"):
-        corpo = """<div class=card><h3>Escaneie o QR</h3>
+        idade = st.get("idadeQrSegundos")
+        idade_txt = f"QR gerado há {idade}s." if idade is not None else ""
+        ts = int(time.time())
+        corpo = f"""<div class=card><h3>Escaneie o QR</h3>
         <ol class=passos>
-          <li>WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b></li>
-          <li>Aponte a câmera para o código</li>
+          <li>No <b>mesmo celular</b> do WhatsApp: <b>Aparelhos conectados</b> → <b>Conectar um aparelho</b></li>
+          <li>Escaneie <b>este</b> QR (ele muda a cada ~20s — use o mais novo)</li>
         </ol>
-        <img class=qr src="/whatsapp/qr.png" alt="QR Code do WhatsApp">
-        <p class=vazio>Atualiza sozinho a cada 5s.</p>
+        <img class=qr src="/whatsapp/qr.png?t={ts}" alt="QR Code do WhatsApp">
+        <p class=vazio>{e(idade_txt)} A página atualiza sozinha. Se não pegar,
+        <form method=post action=/whatsapp/reiniciar style="display:inline">
+        <button type=submit>Gerar QR novo</button></form></p>
         </div>"""
-        return pagina("WhatsApp", corpo, refresh=5)
+        return pagina("WhatsApp", corpo, refresh=4)
 
     corpo = """<div class=card><h3>WhatsApp</h3>
     <p class=aviso>Aguardando o QR… o Chromium ainda está iniciando.</p>
@@ -417,5 +422,16 @@ def whatsapp_qr_png():
         raise HTTPException(502, f"Servidor WhatsApp inacessível: {exc}") from exc
     if r.status_code != 200:
         raise HTTPException(404, "Sem QR no momento")
-    return Response(content=r.content, media_type="image/png",
-                    headers={"Cache-Control": "no-store"})
+    return Response(
+        content=r.content, media_type="image/png",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
+
+
+@app.post("/whatsapp/reiniciar", dependencies=[Depends(autenticar)])
+def whatsapp_reiniciar():
+    try:
+        requests.post(f"{SERVIDOR_WHATSAPP}/reiniciar-qr", timeout=60)
+    except requests.RequestException:
+        pass
+    return RedirectResponse("/whatsapp", status_code=303)

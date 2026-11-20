@@ -13,7 +13,7 @@ services:
     volumes:
       - sessao-whatsapp:/app/.wwebjs_auth   # guarda o login (não precisa ler o QR de novo)
     mem_limit: 1g
-    shm_size: 256m   # o Chromium precisa de memória compartilhada
+    shm_size: 512m   # Chromium no Docker: evita crash / QR que não autentica
 
   bot:
     build: .
