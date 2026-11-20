@@ -242,7 +242,8 @@ def test_guardrails_bloqueia_sistema_e_servico_fantasma():
     assert "Corte" in guardrails.sanitizar_resposta("Corte fica R$ 35")
     txt = persona.montar(None, None, True)
     assert "PROIBIDO" in txt and "FLUXO DE AGENDAMENTO" in txt
-    assert "NÃO invente serviço" in txt or "NÃO invente" in txt
+    assert "EXEMPLOS DE CONVERSA" in txt and "ROTEIRO POR INTENÇÃO" in txt
+    assert "Inventar serviço" in txt or "invente serviço" in txt.lower() or "NÃO invente" in txt
 
 
 def test_baloes():

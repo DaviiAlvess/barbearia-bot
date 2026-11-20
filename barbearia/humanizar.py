@@ -29,4 +29,5 @@ SEM_IA = [
     "Desculpa, não peguei direito. Pode mandar de novo, por favor?",
     "Poxa, me perde. Repete o que você precisa que eu te ajudo agora?",
     "Não entendi bem aqui. Me fala de novo: quer marcar horário ou ver os serviços?",
+    "Opa, pode repetir? Assim eu te ajudo certinho — marcar, preço ou outra dúvida.",
 ]
