@@ -282,6 +282,12 @@ def test_banco_antigo_e_migrado(tmp_path, monkeypatch):
     assert db.aceita_mensagens("qualquer")
 
 
+def _login_painel(client, senha="s3nha"):
+    r = client.post("/login", data={"senha": senha, "next": "/"}, follow_redirects=False)
+    assert r.status_code == 303
+    return client
+
+
 def test_painel(monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -289,15 +295,20 @@ def test_painel(monkeypatch):
     monkeypatch.setenv("PAINEL_SENHA", "s3nha")
     agenda.agendar(TEL, "<script>alert(1)</script>", SABADO, "09:00", "Corte", "Rafael")
     c = TestClient(painel.app)
-    assert c.get("/").status_code == 401
-    assert c.get("/", auth=("dono", "errada")).status_code == 401
-    r = c.get(f"/?data={SABADO}", auth=("dono", "s3nha"))
+    # sem login: redireciona para página HTML (não JSON)
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 303 and "/login" in r.headers["location"]
+    assert "Entrar" in c.get("/login").text
+    assert c.post("/login", data={"senha": "errada", "next": "/"}).status_code == 200
+    assert "Senha incorreta" in c.post("/login", data={"senha": "errada", "next": "/"}).text
+    _login_painel(c)
+    r = c.get(f"/?data={SABADO}")
     assert r.status_code == 200 and "R$ 35.00" in r.text
     assert "<script>alert" not in r.text and "&lt;script&gt;" in r.text  # protegido contra XSS
     r = c.post("/bloquear", data={"data": QUARTA, "barbeiro": "", "motivo": "Feriado"},
-               auth=("dono", "s3nha"), follow_redirects=False)
+               follow_redirects=False)
     assert r.status_code == 303 and agenda.horarios_livres(QUARTA, "Corte")["fechado"]
-    assert "Data inválida" in c.get("/?data=xx", auth=("dono", "s3nha")).text
+    assert "Data inválida" in c.get("/?data=xx").text
 
 
 def test_painel_whatsapp_qr(monkeypatch):
@@ -327,17 +338,18 @@ def test_painel_whatsapp_qr(monkeypatch):
 
     monkeypatch.setattr(painel.requests, "get", fake_get)
     c = TestClient(painel.app)
-    assert c.get("/whatsapp").status_code == 401
-    r = c.get("/whatsapp", auth=("dono", "s3nha"))
+    assert c.get("/whatsapp", follow_redirects=False).status_code == 303
+    _login_painel(c)
+    r = c.get("/whatsapp")
     assert r.status_code == 200
     assert "Escaneie o QR" in r.text and "/whatsapp/qr.png" in r.text
     assert "conversa" not in r.text.lower()
-    png = c.get("/whatsapp/qr.png", auth=("dono", "s3nha"))
+    png = c.get("/whatsapp/qr.png")
     assert png.status_code == 200 and png.content.startswith(b"\x89PNG")
 
     def fake_conectado(url, timeout=3):
         return FakeResp(200, {"conectado": True, "temQr": False, "idSessao": "8113"})
 
     monkeypatch.setattr(painel.requests, "get", fake_conectado)
-    r = c.get("/whatsapp", auth=("dono", "s3nha"))
+    r = c.get("/whatsapp")
     assert r.status_code == 200 and "Conectado" in r.text

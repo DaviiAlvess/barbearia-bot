@@ -1,20 +1,23 @@
 """Painel web do dono: agenda, bloqueios, avaliações e QR do WhatsApp.
 
 Rodar:  uvicorn painel:app --port 8080
-Abrir:  http://localhost:8080  (usuário: dono, senha: PAINEL_SENHA do .env)
+Abrir:  http://localhost:8080  (senha: PAINEL_SENHA do .env)
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
 import os
 import secrets
+import time
 from datetime import timedelta
+from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Form, HTTPException, status
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 load_dotenv()
 
@@ -22,25 +25,15 @@ import config  # noqa: E402
 from barbearia import agenda, db  # noqa: E402
 
 app = FastAPI(title=f"Painel - {config.NOME_BARBEARIA}", docs_url=None, redoc_url=None)
-seguranca = HTTPBasic()
 db.criar_tabelas()
 
 SERVIDOR_WHATSAPP = os.getenv("SERVIDOR_WHATSAPP", "http://localhost:3000").rstrip("/")
+COOKIE_SESSAO = "painel_sessao"
+SESSAO_DIAS = 7
 
 
-def autenticar(cred: HTTPBasicCredentials = Depends(seguranca)) -> None:
-    senha = os.getenv("PAINEL_SENHA")
-    if not senha:
-        raise HTTPException(503, "Defina PAINEL_SENHA no .env para usar o painel.")
-    ok = secrets.compare_digest(cred.username, "dono") and secrets.compare_digest(cred.password, senha)
-    if not ok:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário ou senha incorretos",
-                            headers={"WWW-Authenticate": "Basic"})
-
-
-@app.exception_handler(agenda.ErroAgenda)
-def erro_agenda(_request, exc: agenda.ErroAgenda):
-    return pagina("Erro", f"<div class=card><p>⚠️ {e(str(exc))}</p><a href=/>Voltar</a></div>")
+class PrecisaLogin(Exception):
+    """Redireciona para /login (em vez de JSON do HTTP Basic)."""
 
 
 e = html.escape  # nunca colocar texto do cliente no HTML sem escapar
@@ -52,24 +45,74 @@ main{max-width:960px;margin:auto;padding:16px}
 .card{background:#fff;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px #0001}
 table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #eee;text-align:left}
 th{font-size:13px;color:#666}.nav a{margin-right:12px;color:#1d1b19}
-button{background:#1d1b19;color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
-button.perigo{background:#b3261e}input,select{padding:6px;border:1px solid #ccc;border-radius:6px}
+button{background:#1d1b19;color:#fff;border:0;border-radius:6px;padding:10px 16px;cursor:pointer;font-size:16px}
+button.perigo{background:#b3261e}
+input,select{padding:10px;border:1px solid #ccc;border-radius:6px;font-size:16px;
+width:100%;box-sizing:border-box;margin:6px 0 12px}
 .total{font-size:18px;font-weight:600}.vazio{color:#888}
-.ok{color:#1a7f37;font-weight:600}.aviso{color:#9a6700}.qr{display:block;margin:16px auto;max-width:360px;width:100%;
-background:#fff;border:1px solid #eee;border-radius:8px}
-.passos{line-height:1.6}
+.ok{color:#1a7f37;font-weight:600}.aviso{color:#9a6700}.erro{color:#b3261e}
+.qr{display:block;margin:16px auto;max-width:360px;width:100%;background:#fff;border:1px solid #eee;border-radius:8px}
+.passos{line-height:1.6}.login-box{max-width:360px;margin:40px auto}
+label{font-size:14px;color:#555}.sair{float:right;font-size:14px;color:#f2c14e;text-decoration:none}
 """
 
 
-def pagina(titulo: str, corpo: str, *, refresh: int | None = None) -> HTMLResponse:
+def _segredo() -> bytes:
+    senha = os.getenv("PAINEL_SENHA") or ""
+    return hashlib.sha256(f"barbearia-painel|{senha}".encode()).digest()
+
+
+def _token_sessao() -> str:
+    ts = str(int(time.time()))
+    sig = hmac.new(_segredo(), f"dono|{ts}".encode(), hashlib.sha256).hexdigest()
+    return f"{ts}.{sig}"
+
+
+def _sessao_ok(token: str | None) -> bool:
+    if not token or "." not in token:
+        return False
+    ts, sig = token.split(".", 1)
+    esperado = hmac.new(_segredo(), f"dono|{ts}".encode(), hashlib.sha256).hexdigest()
+    if not secrets.compare_digest(sig, esperado):
+        return False
+    try:
+        return int(time.time()) - int(ts) < SESSAO_DIAS * 86400
+    except ValueError:
+        return False
+
+
+def autenticar(request: Request) -> None:
+    if not os.getenv("PAINEL_SENHA"):
+        raise HTTPException(503, "Defina PAINEL_SENHA no .env para usar o painel.")
+    if not _sessao_ok(request.cookies.get(COOKIE_SESSAO)):
+        raise PrecisaLogin()
+
+
+@app.exception_handler(PrecisaLogin)
+def precisa_login(request: Request, _exc: PrecisaLogin):
+    nxt = request.url.path
+    if request.url.query:
+        nxt = f"{nxt}?{request.url.query}"
+    return RedirectResponse(f"/login?next={quote(nxt, safe='/')}", status_code=303)
+
+
+@app.exception_handler(agenda.ErroAgenda)
+def erro_agenda(_request, exc: agenda.ErroAgenda):
+    return pagina("Erro", f"<div class=card><p>⚠️ {e(str(exc))}</p><a href=/>Voltar</a></div>")
+
+
+def pagina(titulo: str, corpo: str, *, refresh: int | None = None, logado: bool = True) -> HTMLResponse:
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
+    nav = ""
+    if logado:
+        nav = """<div class="nav card"><a href="/">Agenda</a><a href="/bloqueios">Folgas e feriados</a>
+<a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp / QR</a>
+<a href="/sair" style="float:right">Sair</a></div>"""
     return HTMLResponse(f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">{meta}
 <title>{e(titulo)}</title>
 <style>{ESTILO}</style></head><body><header>💈 {e(config.NOME_BARBEARIA)}</header><main>
-<div class="nav card"><a href="/">Agenda</a><a href="/bloqueios">Folgas e feriados</a>
-<a href="/avaliacoes">Avaliações</a><a href="/whatsapp">WhatsApp / QR</a></div>
-{corpo}</main></body></html>""")
+{nav}{corpo}</main></body></html>""")
 
 
 def _status_whatsapp() -> dict:
@@ -80,6 +123,51 @@ def _status_whatsapp() -> dict:
         return {"conectado": False, "temQr": False, "erro": f"HTTP {r.status_code}"}
     except requests.RequestException as exc:
         return {"conectado": False, "temQr": False, "erro": str(exc)}
+
+
+@app.get("/login")
+def login_form(next: str = "/"):
+    corpo = f"""<div class="card login-box"><h2>Entrar no painel</h2>
+    <form method=post action=/login>
+    <input type=hidden name=next value="{e(next)}">
+    <label>Senha</label>
+    <input type=password name=senha required autocomplete=current-password autofocus>
+    <button type=submit style="width:100%">Entrar</button>
+    </form>
+    <p class=vazio>Painel da {e(config.NOME_BARBEARIA)} — separado do Condo Organize.</p>
+    </div>"""
+    return pagina("Entrar", corpo, logado=False)
+
+
+@app.post("/login")
+def login_post(request: Request, senha: str = Form(...), next: str = Form("/")):
+    esperada = os.getenv("PAINEL_SENHA") or ""
+    if not esperada or not secrets.compare_digest(senha, esperada):
+        corpo = f"""<div class="card login-box"><h2>Entrar no painel</h2>
+        <p class=erro>Senha incorreta.</p>
+        <form method=post action=/login>
+        <input type=hidden name=next value="{e(next)}">
+        <label>Senha</label>
+        <input type=password name=senha required autocomplete=current-password autofocus>
+        <button type=submit style="width:100%">Entrar</button>
+        </form></div>"""
+        return pagina("Entrar", corpo, logado=False)
+    destino = next if next.startswith("/") else "/"
+    resp = RedirectResponse(destino, status_code=303)
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
+    resp.set_cookie(
+        COOKIE_SESSAO, _token_sessao(),
+        httponly=True, samesite="lax", secure=(proto == "https"),
+        max_age=SESSAO_DIAS * 86400,
+    )
+    return resp
+
+
+@app.get("/sair")
+def sair():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(COOKIE_SESSAO)
+    return resp
 
 
 @app.get("/", dependencies=[Depends(autenticar)])
