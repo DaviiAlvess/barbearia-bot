@@ -39,7 +39,7 @@ export function showError(message) {
   catalog().replaceChildren();
   errorMessage().textContent = message;
   errorBox().hidden = false;
-  setStatus(message);
+  setStatus("");
   results().setAttribute("aria-busy", "false");
 }
 

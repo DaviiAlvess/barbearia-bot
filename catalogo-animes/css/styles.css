@@ -321,6 +321,11 @@ input::placeholder {
   padding: 0.85rem 0.9rem 1rem;
 }
 
+.card h3,
+#modal-title {
+  overflow-wrap: anywhere;
+}
+
 .card h3 {
   margin: 0;
   font-size: 1.15rem;

@@ -1,4 +1,4 @@
-import { buildGenresUrl, buildSearchUrl, combineSignals, enqueue, fetchJson, timeoutSignal } from "./api.js";
+import { buildGenresUrl, buildSearchUrl, enqueue, fetchJson, readCatalog, readGenres } from "./api.js";
 import { FALLBACK_GENRES, translateGenre, visibleGenres } from "./labels.js";
 import { clearError, fillModal, renderCards, renderGenres, renderStatusOptions, setLoading, setStatus, showError } from "./render.js";
 
@@ -80,8 +80,8 @@ async function loadGenres(type) {
     return;
   }
   try {
-    const payload = await enqueue(() => fetchJson(buildGenresUrl(type), timeoutSignal(15000)));
-    const list = visibleGenres(payload.data).map((genre) => ({
+    const payload = await enqueue(() => fetchJson(buildGenresUrl(type)));
+    const list = visibleGenres(readGenres(payload)).map((genre) => ({
       id: String(genre.mal_id),
       name: translateGenre(genre.name),
     }));
@@ -98,13 +98,12 @@ async function runSearch() {
   state.controller?.abort();
   const controller = new AbortController();
   state.controller = controller;
-  const signal = combineSignals([controller.signal, timeoutSignal(15000)]);
   setLoading(true);
 
   try {
-    const payload = await enqueue(() => fetchJson(buildSearchUrl(state.type, state), signal));
+    const payload = await enqueue(() => fetchJson(buildSearchUrl(state.type, state), controller.signal));
     if (id !== state.requestId) return;
-    const items = Array.isArray(payload?.data) ? payload.data : [];
+    const items = readCatalog(payload);
     if (items.length === 0) {
       state.items = new Map();
       showError("Nenhum título encontrado para essa busca. Tente outro termo ou outro filtro.");

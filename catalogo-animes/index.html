@@ -25,7 +25,7 @@
         <form id="search-form" class="filters">
           <div class="field field-search">
             <label for="q">Busca</label>
-            <input id="q" name="q" type="search" placeholder="Ex.: Cowboy Bebop" autocomplete="off" enterkeyhint="search">
+            <input id="q" name="q" type="search" maxlength="100" placeholder="Ex.: Cowboy Bebop" autocomplete="off" enterkeyhint="search">
           </div>
 
           <fieldset>
@@ -58,7 +58,7 @@
           <p id="status-text" role="status">Carregando catálogo…</p>
         </div>
 
-        <div id="error" class="error" hidden>
+        <div id="error" class="error" role="alert" hidden>
           <p id="error-message"></p>
           <button type="button" id="retry">Tentar novamente</button>
         </div>

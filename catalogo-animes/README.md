@@ -12,6 +12,7 @@ Catálogo em uma página, em português, para buscar animes e mangás. Os dados 
 - Modal com a ficha completa, trailer ou link do MyAnimeList quando a API envia.
 - Estado de carregamento e estado de erro com botão para tentar de novo.
 - A busca é atrasada (debounce) e as requisições saem com intervalo, para respeitar o limite de cerca de 3 por segundo.
+- Cada consulta de leitura espera no máximo 8 segundos e, se a resposta for limite de taxa, falha temporária ou tempo esgotado, é repetida uma vez. Cancelar a busca não dispara essa segunda tentativa.
 
 ## Publicação
 
@@ -21,7 +22,7 @@ Não faça merge desse branch no `main`. Ele existe só para servir o catálogo.
 
 ## Como abrir
 
-Os scripts são módulos ES6 e precisam de HTTP. Na pasta `catalogo-animes`:
+Os scripts são módulos ES6 e precisam de HTTP. Nesta pasta:
 
 ```bash
 python3 -m http.server 8080
