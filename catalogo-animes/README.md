@@ -13,6 +13,12 @@ Catálogo em uma página, em português, para buscar animes e mangás. Os dados 
 - Estado de carregamento e estado de erro com botão para tentar de novo.
 - A busca é atrasada (debounce) e as requisições saem com intervalo, para respeitar o limite de cerca de 3 por segundo.
 
+## Publicação
+
+O site para o GitHub Pages está no branch `cursor/catalogo-pages-61fd`, com estes mesmos arquivos na raiz. Para ligar a publicação: em Settings → Pages, escolha Deploy from a branch, o branch `cursor/catalogo-pages-61fd` e a pasta `/ (root)`.
+
+Não faça merge desse branch no `main`. Ele existe só para servir o catálogo.
+
 ## Como abrir
 
 Os scripts são módulos ES6 e precisam de HTTP. Na pasta `catalogo-animes`:
